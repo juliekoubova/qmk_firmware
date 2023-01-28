@@ -23,6 +23,11 @@ enum layers {
     FN,
 };
 
+enum key_codes {
+    KC_FN_B = SAFE_RANGE,
+    KC_FN_F,
+};
+
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [BASE] = LAYOUT_ansi_61(
         KC_ESC,  KC_1,     KC_2,        KC_3,    KC_4,    KC_5,    KC_6,     KC_7,    KC_8,    KC_9,     KC_0,     KC_MINS,  KC_EQL,   KC_BSPC,
@@ -33,9 +38,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
     [FN] = LAYOUT_ansi_61(
         KC_TILD, KC_F1,    KC_F2,       KC_F3,   KC_F4,   KC_F5,   KC_F6,      KC_F7,   KC_F8,   KC_F9,    KC_F10,   KC_F11,   KC_F12,   KC_LEFT,
-        XXXXXXX, XXXXXXX,  C(KC_RIGHT), XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, KC_HOME, XXXXXXX,  XXXXXXX,  KC_VOLD,  KC_VOLU,  KC_MUTE,
-        _______, KC_END,   XXXXXXX,     XXXXXXX, XXXXXXX, XXXXXXX, KC_LEFT,    KC_DOWN, KC_UP,   KC_RIGHT, XXXXXXX,  XXXXXXX,            KC_NO,
-        _______,           XXXXXXX,     KC_DEL,  XXXXXXX, XXXXXXX, C(KC_LEFT), XXXXXXX, XXXXXXX, XXXXXXX,  XXXXXXX,  XXXXXXX,            _______,
+        XXXXXXX, XXXXXXX,  C(KC_RIGHT), XXXXXXX, KC_INS,  XXXXXXX, XXXXXXX,    XXXXXXX, KC_HOME, XXXXXXX,  XXXXXXX,  KC_VOLD,  KC_VOLU,  KC_MUTE,
+        _______, KC_END,   XXXXXXX,     XXXXXXX, KC_FN_F, XXXXXXX, KC_LEFT,    KC_DOWN, KC_UP,   KC_RIGHT, XXXXXXX,  XXXXXXX,            XXXXXXX,
+        _______,           XXXXXXX,     KC_DEL,  XXXXXXX, XXXXXXX, KC_FN_B,    XXXXXXX, XXXXXXX, XXXXXXX,  XXXXXXX,  XXXXXXX,            _______,
         _______, _______,  _______,                                KC_RIGHT,                               _______,  _______,  _______,  _______)
 };
 
@@ -43,13 +48,77 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
 #define FN_BITMASK (1 << FN)
 
+// Fn+X       = forward delete
+// Fn+Shift+X = backspace
 const key_override_t fn_shift_x = ko_make_with_layers(
-    MOD_LSFT, KC_DEL,
+    MOD_MASK_SHIFT, KC_DEL,
     KC_BSPC,
     FN_BITMASK
 );
 
+// Fn+B = Ctrl-left (jump one word to the left)
+const key_override_t fn_b = ko_make_with_layers_and_negmods(
+    0, KC_FN_B,
+    C(KC_LEFT),
+    FN_BITMASK,
+    MOD_MASK_CTRL
+);
+
+// Fn+Ctrl+B = Page Up
+const key_override_t fn_ctrl_b = ko_make_with_layers(
+    MOD_MASK_CTRL, KC_FN_B,
+    KC_PAGE_UP,
+    FN_BITMASK
+);
+
+// Fn+Ctrl+F = Page Down
+const key_override_t fn_ctrl_f = ko_make_with_layers(
+    MOD_MASK_CTRL, KC_FN_F,
+    KC_PAGE_DOWN,
+    FN_BITMASK
+);
+
+
 const key_override_t **key_overrides = (const key_override_t*[]){
     &fn_shift_x,
+    &fn_b,
+    &fn_ctrl_b,
+    &fn_ctrl_f,
     NULL
 };
+
+bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
+    uint8_t layer = get_highest_layer(layer_state);
+
+    for (uint8_t row = 0; row < MATRIX_ROWS; ++row) {
+        for (uint8_t col = 0; col < MATRIX_COLS; ++col) {
+            uint8_t index = g_led_config.matrix_co[row][col];
+            if (index < led_min || index >= led_max || index == NO_LED) {\
+                continue;
+            }
+
+            if (get_highest_layer(layer_state) > 0) {
+                uint16_t keycode = keymap_key_to_keycode(layer, (keypos_t){col,row});
+                if (keycode > KC_TRNS) {
+                    rgb_matrix_set_color(index, RGB_RED);
+                    continue;
+                }
+            }
+
+            uint16_t keycode = keymap_key_to_keycode(BASE, (keypos_t){col,row});
+            if (keycode == KC_LSFT || keycode == KC_RSFT) {
+                if (is_caps_word_on() || host_keyboard_led_state().caps_lock) {
+                    rgb_matrix_set_color(index, RGB_TURQUOISE);
+                    continue;
+                }
+            }
+
+            rgb_matrix_set_color(index, RGB_OFF);
+        }
+    }
+    return false;
+}
+
+// void caps_word_set_user(bool active) {
+//     rgb_matrix_indicators();
+// }
