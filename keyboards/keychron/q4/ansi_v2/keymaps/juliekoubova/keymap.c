@@ -220,6 +220,10 @@ typedef enum {
     VIM_MOTION_DELETE_RIGHT,
 } vim_motion_t;
 
+typedef enum {
+    VIM_ACTION_NONE,
+    VIM_ACTION_INSERT_MODE,
+} vim_action_t;
 
 static vim_mode_t vim_mode = VIM_INSERT_MODE;
 static bool vim_key_pressed = false;
@@ -227,15 +231,23 @@ static bool vim_key_pressed = false;
 // track modifier state separately. we modify the actual mods so we can't rely on them
 static uint8_t vim_mods = 0;
 
+
+void vim_enter_insert_mode(void) {
+    if (vim_mode == VIM_INSERT_MODE) {
+        return;
+    }
+    VIM_DPRINT("Entering insert mode\n");
+    vim_mode = VIM_INSERT_MODE;
+    vim_mods = 0;
+}
+
 void vim_toggle_command_mode(void) {
     if (vim_mode == VIM_INSERT_MODE) {
         vim_mode = VIM_COMMAND_MODE;
         vim_mods = get_mods();
         VIM_DPRINTF("Entering command mode vim_mods=%d\n", vim_mods);
     } else {
-        VIM_DPRINT("Entering insert mode\n");
-        vim_mode = VIM_INSERT_MODE;
-        vim_mods = 0;
+        vim_enter_insert_mode();
     }
 }
 
@@ -278,7 +290,15 @@ void vim_perform_motion(vim_motion_t motion, keyrecord_t *record) {
     }
 }
 
+void vim_perform_action(vim_action_t action, vim_motion_t motion, keyrecord_t *record) {
+    if (action == VIM_ACTION_INSERT_MODE) {
+        vim_perform_motion(motion, record);
+        vim_enter_insert_mode();
+    }
+}
+
 void process_vim_command(uint16_t keycode, keyrecord_t *record) {
+    vim_action_t action = VIM_ACTION_NONE;
     vim_motion_t motion = VIM_MOTION_NONE;
 
     if (IS_MODIFIERS_KEYCODE(keycode)) {
@@ -298,10 +318,15 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
 
     if (vim_mods == 0) {
         switch (keycode) {
+            case KC_A:
+                action = VIM_ACTION_INSERT_MODE;
+                motion = VIM_MOTION_RIGHT;
+                break;
             case KC_B: motion = VIM_MOTION_WORD_START; break;
             case KC_E:
             case KC_W: motion = VIM_MOTION_WORD_END; break;
             case KC_H: motion = VIM_MOTION_LEFT; break;
+            case KC_I: action = VIM_ACTION_INSERT_MODE; break;
             case KC_J: motion = VIM_MOTION_DOWN; break;
             case KC_K: motion = VIM_MOTION_UP; break;
             case KC_L: motion = VIM_MOTION_RIGHT; break;
@@ -313,7 +338,15 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
         switch (keycode) {
             case KC_4: /*$*/ motion = VIM_MOTION_LINE_END; break;
             case KC_6: /*^*/ motion = VIM_MOTION_LINE_START; break;
+            case KC_A:
+                action = VIM_ACTION_INSERT_MODE;
+                motion = VIM_MOTION_LINE_END;
+                break;
             case KC_B: motion = VIM_MOTION_WORD_START; break;
+            case KC_I:
+                action = VIM_ACTION_INSERT_MODE;
+                motion = VIM_MOTION_LINE_START;
+                break;
             case KC_E:
             case KC_W: motion = VIM_MOTION_WORD_END; break;
             case KC_X: motion = VIM_MOTION_DELETE_RIGHT; break;
@@ -329,7 +362,11 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
         return;
     }
 
-    vim_perform_motion(motion, record);
+    if (action != VIM_ACTION_NONE) {
+        vim_perform_action(action, motion, record);
+    } else if (motion != VIM_MOTION_NONE) {
+        vim_perform_motion(motion, record);
+    }
 }
 
 bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keycode) {
