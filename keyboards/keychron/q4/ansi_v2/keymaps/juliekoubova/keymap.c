@@ -202,6 +202,21 @@ typedef enum {
     VIM_VISUAL_MODE,
 } vim_mode_t;
 
+typedef enum {
+    VIM_MOTION_NONE,
+    VIM_MOTION_LEFT,
+    VIM_MOTION_DOWN,
+    VIM_MOTION_UP,
+    VIM_MOTION_RIGHT,
+    VIM_MOTION_LINE_START,
+    VIM_MOTION_LINE_END,
+    VIM_MOTION_WORD_START,
+    VIM_MOTION_WORD_END,
+    VIM_MOTION_DOCUMENT_START,
+    VIM_MOTION_DOCUMENT_END,
+} vim_motion_t;
+
+
 static vim_mode_t vim_mode = VIM_INSERT_MODE;
 static bool vim_key_pressed = false;
 
@@ -215,24 +230,66 @@ void vim_toggle_command_mode(void) {
     }
 }
 
-void process_vim_command(uint16_t keycode, keyrecord_t *record) {
-    uint16_t new_keycode = KC_NO;
-    switch (keycode) {
-        case KC_H: new_keycode = KC_LEFT; break;
-        case KC_J: new_keycode = KC_DOWN; break;
-        case KC_K: new_keycode = KC_UP; break;
-        case KC_L: new_keycode = KC_RIGHT; break;
-        default: break;
+void vim_perform_motion(vim_motion_t motion, keyrecord_t *record) {
+    uint16_t keycode = KC_NO;
+    uint8_t mods = 0;
+
+    switch (motion) {
+		case VIM_MOTION_LEFT: keycode = KC_LEFT; break;
+		case VIM_MOTION_DOWN: keycode = KC_DOWN; break;
+		case VIM_MOTION_UP: keycode = KC_UP; break;
+		case VIM_MOTION_RIGHT: keycode = KC_RIGHT; break;
+		case VIM_MOTION_LINE_START: keycode = KC_HOME; break;
+		case VIM_MOTION_LINEs_END: keycode = KC_END; break;
+		case VIM_MOTION_WORD_START: keycode = KC_LEFT; mods = MOD_LCTL; break;
+		case VIM_MOTION_WORD_END: keycode = KC_RIGHT; mods = MOD_LCTL; break;
+		case VIM_MOTION_DOCUMENT_START: keycode = KC_HOME; mods = MOD_LCTL; break;
+		case VIM_MOTION_DOCUMENT_END: keycode = KC_END; mods = MOD_LCTL; break;
+        default: return;
     }
-    if (new_keycode != KC_NO) {
-        if (record->event.pressed) {
-            VIM_DPRINTF("Pressing %d\n", new_keycode);
-            register_code(new_keycode);
-        } else {
-            VIM_DPRINTF("Releasing %d\n", new_keycode);
-            unregister_code(new_keycode);
+
+    if (record->event.pressed) {
+        VIM_DPRINTF("register keycode=%d\n", keycode);
+        if (mods) {
+            register_mods(mods);
+        }
+        register_code(keycode);
+    } else {
+        VIM_DPRINTF("unregister keycode=%d\n", keycode);
+        unregister_code(keycode);
+        if (mods) {
+            unregister_mods(mods);
         }
     }
+}
+
+void process_vim_command(uint16_t keycode, keyrecord_t *record) {
+    vim_motion_t motion = VIM_MOTION_NONE;
+    const uint8_t mods = get_mods();
+
+    if (mods == 0) {
+        switch (keycode) {
+            case KC_B: motion = VIM_MOTION_WORD_START; break;
+            case KC_E:
+            case KC_W: motion = VIM_MOTION_WORD_END; break;
+            case KC_H: motion = VIM_MOTION_LEFT; break;
+            case KC_J: motion = VIM_MOTION_DOWN; break;
+            case KC_K: motion = VIM_MOTION_UP; break;
+            case KC_L: motion = VIM_MOTION_RIGHT; break;
+            case KC_0: motion = VIM_MOTION_LINE_START; break;
+            default: return;
+        }
+    } else if (mods & MOD_MASK_SHIFT) {
+        switch (keycode) {
+            case KC_4: /*$*/ motion = VIM_MOTION_LINE_END; break;
+            case KC_6: /*^*/ motion = VIM_MOTION_LINE_START; break;
+            default: return;
+        }
+    } else {
+        return;
+    }
+
+    vim_perform_motion(motion, record);
 }
 
 bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keycode) {
