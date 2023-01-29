@@ -220,13 +220,18 @@ typedef enum {
 static vim_mode_t vim_mode = VIM_INSERT_MODE;
 static bool vim_key_pressed = false;
 
+// track modifier state separately. we modify the actual mods so we can't rely on them
+static uint8_t vim_mods = 0;
+
 void vim_toggle_command_mode(void) {
     if (vim_mode == VIM_INSERT_MODE) {
-        VIM_DPRINT("Entering command mode\n");
         vim_mode = VIM_COMMAND_MODE;
+        vim_mods = get_mods();
+        VIM_DPRINTF("Entering command mode vim_mods=%d\n", vim_mods);
     } else {
         VIM_DPRINT("Entering insert mode\n");
         vim_mode = VIM_INSERT_MODE;
+        vim_mods = 0;
     }
 }
 
@@ -240,7 +245,7 @@ void vim_perform_motion(vim_motion_t motion, keyrecord_t *record) {
 		case VIM_MOTION_UP: keycode = KC_UP; break;
 		case VIM_MOTION_RIGHT: keycode = KC_RIGHT; break;
 		case VIM_MOTION_LINE_START: keycode = KC_HOME; break;
-		case VIM_MOTION_LINEs_END: keycode = KC_END; break;
+		case VIM_MOTION_LINE_END: keycode = KC_END; break;
 		case VIM_MOTION_WORD_START: keycode = KC_LEFT; mods = MOD_LCTL; break;
 		case VIM_MOTION_WORD_END: keycode = KC_RIGHT; mods = MOD_LCTL; break;
 		case VIM_MOTION_DOCUMENT_START: keycode = KC_HOME; mods = MOD_LCTL; break;
@@ -249,15 +254,17 @@ void vim_perform_motion(vim_motion_t motion, keyrecord_t *record) {
     }
 
     if (record->event.pressed) {
-        VIM_DPRINTF("register keycode=%d\n", keycode);
         if (mods) {
+            VIM_DPRINTF("register mods=%d\n", mods);
             register_mods(mods);
         }
+        VIM_DPRINTF("register keycode=%d\n", keycode);
         register_code(keycode);
     } else {
         VIM_DPRINTF("unregister keycode=%d\n", keycode);
         unregister_code(keycode);
         if (mods) {
+            VIM_DPRINTF("unregister mods=%d\n", mods);
             unregister_mods(mods);
         }
     }
@@ -265,9 +272,23 @@ void vim_perform_motion(vim_motion_t motion, keyrecord_t *record) {
 
 void process_vim_command(uint16_t keycode, keyrecord_t *record) {
     vim_motion_t motion = VIM_MOTION_NONE;
-    const uint8_t mods = get_mods();
 
-    if (mods == 0) {
+    if (IS_MODIFIERS_KEYCODE(keycode)) {
+        if (record->event.pressed) {
+            vim_mods |= MOD_BIT(keycode);
+        } else {
+            vim_mods &= ~MOD_BIT(keycode);
+        }
+    }
+
+    VIM_DPRINTF(
+        "process vim command vim_mods=%d keycode=%d pressed=%d\n", 
+        vim_mods,
+        keycode,
+        record->event.pressed
+    );
+
+    if (vim_mods == 0) {
         switch (keycode) {
             case KC_B: motion = VIM_MOTION_WORD_START; break;
             case KC_E:
@@ -279,7 +300,7 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
             case KC_0: motion = VIM_MOTION_LINE_START; break;
             default: return;
         }
-    } else if (mods & MOD_MASK_SHIFT) {
+    } else if (vim_mods & MOD_MASK_SHIFT) {
         switch (keycode) {
             case KC_4: /*$*/ motion = VIM_MOTION_LINE_END; break;
             case KC_6: /*^*/ motion = VIM_MOTION_LINE_START; break;
