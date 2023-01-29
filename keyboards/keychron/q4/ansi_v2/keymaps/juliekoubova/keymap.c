@@ -23,7 +23,8 @@ enum layers {
 };
 
 enum key_codes {
-    QK_VIM_B = SAFE_RANGE,
+    QK_VIM = SAFE_RANGE,
+    QK_VIM_B,
     QK_VIM_F,
 };
 
@@ -40,7 +41,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         KC_TAB,        KC_Q,     KC_W,        KC_E,    KC_R,     KC_T,         KC_Y,       KC_U,    KC_I,    KC_O,     KC_P,           KC_LBRC,  KC_RBRC,  KC_BSLS,
         TD(TD_FN_ESC), KC_A,     KC_S,        KC_D,    KC_F,     KC_G,         KC_H,       KC_J,    KC_K,    KC_L,     KC_SCLN,        KC_QUOT,            KC_ENT,
         KC_LSFT,       KC_Z,     KC_X,        KC_C,    KC_V,     KC_B,         KC_N,       KC_M,    KC_COMM, KC_DOT,   KC_SLSH,                            KC_RSFT,
-        KC_LCTL,       KC_LOPT,  KC_LCMD,                                      KC_SPC,                                 TD(TD_FN_ESC),  KC_RCMD,  KC_ROPT,  KC_RCTL),
+        KC_LCTL,       KC_LOPT,  KC_LCMD,                                      KC_SPC,                                 QK_VIM,  KC_RCMD,  KC_ROPT,  KC_RCTL),
 
     [FN] = LAYOUT_ansi_61(
         KC_GRAVE,      KC_F1,    KC_F2,       KC_F3,   KC_F4,    KC_F5,        KC_F6,      KC_F7,   KC_F8,   KC_F9,    KC_F10,         KC_F11,   KC_F12,   KC_LEFT,
@@ -189,3 +190,87 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
 }
 
 #endif
+
+#include "print.h"
+
+#define VIM_DPRINT(s)    dprint("[vim] " s)
+#define VIM_DPRINTF(...) dprintf("[vim] " __VA_ARGS__)
+
+typedef enum {
+    VIM_INSERT_MODE,
+    VIM_COMMAND_MODE,
+    VIM_VISUAL_MODE,
+} vim_mode_t;
+
+static vim_mode_t vim_mode = VIM_INSERT_MODE;
+static bool vim_key_pressed = false;
+
+void vim_toggle_command_mode(void) {
+    if (vim_mode == VIM_INSERT_MODE) {
+        VIM_DPRINT("Entering command mode\n");
+        vim_mode = VIM_COMMAND_MODE;
+    } else {
+        VIM_DPRINT("Entering insert mode\n");
+        vim_mode = VIM_INSERT_MODE;
+    }
+}
+
+void process_vim_command(uint16_t keycode, keyrecord_t *record) {
+    uint16_t new_keycode = KC_NO;
+    switch (keycode) {
+        case KC_H: new_keycode = KC_LEFT; break;
+        case KC_J: new_keycode = KC_DOWN; break;
+        case KC_K: new_keycode = KC_UP; break;
+        case KC_L: new_keycode = KC_RIGHT; break;
+        default: break;
+    }
+    if (new_keycode != KC_NO) {
+        if (record->event.pressed) {
+            VIM_DPRINTF("Pressing %d\n", new_keycode);
+            register_code(new_keycode);
+        } else {
+            VIM_DPRINTF("Releasing %d\n", new_keycode);
+            unregister_code(new_keycode);
+        }
+    }
+}
+
+bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keycode) {
+    if (record->event.pressed) {
+        static bool tapped = false;
+        static uint16_t timer = 0;
+        if (keycode == vim_keycode) {
+            if (tapped && !timer_expired(record->event.time, timer)) {
+                // double-tapped the vim key, toggle command mode
+                vim_toggle_command_mode();
+                return false;
+            }
+            VIM_DPRINT("Vim key pressed\n");
+            tapped = true;
+            timer = record->event.time + GET_TAPPING_TERM(keycode, record);
+            vim_key_pressed = true;
+            return false;
+        } else {
+            tapped = false;
+        }
+    } else if (keycode == vim_keycode) {
+        VIM_DPRINT("Vim key released\n");
+        vim_key_pressed = false;
+        return false;
+    }
+
+    if (vim_mode == VIM_COMMAND_MODE || vim_key_pressed) {
+        process_vim_command(keycode, record);
+        return false;
+    }
+
+    return true;
+}
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    return process_record_vim(keycode, record, QK_VIM);
+}
+
+void keyboard_post_init_user(void) {
+  debug_enable=true;
+}
