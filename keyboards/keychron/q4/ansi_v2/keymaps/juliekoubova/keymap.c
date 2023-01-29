@@ -221,9 +221,14 @@ typedef enum {
 } vim_motion_t;
 
 typedef enum {
-    VIM_ACTION_NONE,
-    VIM_ACTION_INSERT_MODE,
-} vim_action_t;
+    VIM_MOTION_TYPE_TAP,
+    VIM_MOTION_TYPE_PRESS,
+    VIM_MOTION_TYPE_RELEASE,
+} vim_motion_type_t;
+
+#ifndef VIM_COMMAND_BUFFER_SIZE
+#   define VIM_COMMAND_BUFFER_SIZE 10
+#endif
 
 static vim_mode_t vim_mode = VIM_INSERT_MODE;
 static bool vim_key_pressed = false;
@@ -231,6 +236,8 @@ static bool vim_key_pressed = false;
 // track modifier state separately. we modify the actual mods so we can't rely on them
 static uint8_t vim_mods = 0;
 
+static uint8_t vim_command_buffer[VIM_COMMAND_BUFFER_SIZE] = {};
+static uint8_t vim_command_buffer_size = 0;
 
 void vim_enter_insert_mode(void) {
     if (vim_mode == VIM_INSERT_MODE) {
@@ -241,17 +248,24 @@ void vim_enter_insert_mode(void) {
     vim_mods = 0;
 }
 
+void vim_enter_command_mode(void) {
+    if (vim_mode == VIM_COMMAND_MODE) {
+        return;
+    }
+    vim_mode = VIM_COMMAND_MODE;
+    vim_mods = get_mods();
+    VIM_DPRINTF("Entering command mode vim_mods=%d\n", vim_mods);
+}
+
 void vim_toggle_command_mode(void) {
     if (vim_mode == VIM_INSERT_MODE) {
-        vim_mode = VIM_COMMAND_MODE;
-        vim_mods = get_mods();
-        VIM_DPRINTF("Entering command mode vim_mods=%d\n", vim_mods);
+        vim_enter_command_mode();
     } else {
         vim_enter_insert_mode();
     }
 }
 
-void vim_perform_motion(vim_motion_t motion, keyrecord_t *record) {
+void vim_perform_motion(vim_motion_t motion, vim_motion_type_t type) {
     uint16_t keycode = KC_NO;
     uint8_t mods = 0;
 
@@ -273,33 +287,49 @@ void vim_perform_motion(vim_motion_t motion, keyrecord_t *record) {
         default: return;
     }
 
-    if (record->event.pressed) {
-        if (mods) {
-            VIM_DPRINTF("register mods=%d\n", mods);
-            register_mods(mods);
-        }
-        VIM_DPRINTF("register keycode=%d\n", keycode);
-        register_code(keycode);
-    } else {
-        VIM_DPRINTF("unregister keycode=%d\n", keycode);
-        unregister_code(keycode);
-        if (mods) {
-            VIM_DPRINTF("unregister mods=%d\n", mods);
-            unregister_mods(mods);
-        }
+    if (mods && (type == VIM_MOTION_TYPE_PRESS || type == VIM_MOTION_TYPE_TAP)) {
+        VIM_DPRINTF("register mods=%d\n", mods);
+        register_mods(mods);
+    }
+
+    switch (type) {
+        case VIM_MOTION_TYPE_TAP:
+            VIM_DPRINTF("tap keycode=%d\n", keycode);
+            tap_code(keycode);
+            break;
+        case VIM_MOTION_TYPE_PRESS:
+            VIM_DPRINTF("register keycode=%d\n", keycode);
+            register_code(keycode);
+            break;
+        case VIM_MOTION_TYPE_RELEASE:
+            VIM_DPRINTF("unregister keycode=%d\n", keycode);
+            unregister_code(keycode);
+            break;
+    }
+
+    if (mods && (type == VIM_MOTION_TYPE_RELEASE || type == VIM_MOTION_TYPE_TAP)) {
+        VIM_DPRINTF("unregister mods=%d\n", mods);
+        unregister_mods(mods);
     }
 }
 
-void vim_perform_action(vim_action_t action, vim_motion_t motion, keyrecord_t *record) {
-    if (action == VIM_ACTION_INSERT_MODE) {
-        vim_perform_motion(motion, record);
-        vim_enter_insert_mode();
+void vim_append_command(uint8_t keycode) {
+    if (vim_command_buffer_size == VIM_COMMAND_BUFFER_SIZE) {
+        print("[vim] Ran out of command buffer space.\n");
+        vim_command_buffer_size = 0;
+        return;
     }
+    vim_command_buffer[vim_command_buffer_size] = keycode;
+    vim_command_buffer_size++;
+
+    dprint("[vim] command buffer: ");
+    for (uint8_t i = 0; i < vim_command_buffer_size; i++) {
+        dprintf("%d ", vim_command_buffer[i]);
+    }
+    dprint("\n");
 }
 
 void process_vim_command(uint16_t keycode, keyrecord_t *record) {
-    vim_action_t action = VIM_ACTION_NONE;
-    vim_motion_t motion = VIM_MOTION_NONE;
 
     if (IS_MODIFIERS_KEYCODE(keycode)) {
         if (record->event.pressed) {
@@ -316,17 +346,43 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
         record->event.pressed
     );
 
+    if (record->event.pressed) {
+        if (vim_mods == 0) {
+            switch (keycode) {
+                case KC_1 ... KC_9:
+                case KC_C:
+                case KC_D:
+                    vim_append_command(keycode);
+                    return;
+                case KC_A:
+                    vim_perform_motion(VIM_MOTION_RIGHT, VIM_MOTION_TYPE_TAP);
+                    vim_enter_insert_mode();
+                    return;
+                case KC_I:
+                    vim_enter_insert_mode();
+                    return;
+            }
+        } else if (vim_mods & MOD_MASK_SHIFT) {
+            switch (keycode) {
+                case KC_A:
+                    vim_perform_motion(VIM_MOTION_LINE_END, VIM_MOTION_TYPE_TAP);
+                    vim_enter_insert_mode();
+                    return;
+                case KC_I:
+                    vim_perform_motion(VIM_MOTION_LINE_START, VIM_MOTION_TYPE_TAP);
+                    vim_enter_insert_mode();
+                    return;
+            }
+        }
+    }
+
+    vim_motion_t motion = VIM_MOTION_NONE;
     if (vim_mods == 0) {
         switch (keycode) {
-            case KC_A:
-                action = VIM_ACTION_INSERT_MODE;
-                motion = VIM_MOTION_RIGHT;
-                break;
             case KC_B: motion = VIM_MOTION_WORD_START; break;
             case KC_E:
             case KC_W: motion = VIM_MOTION_WORD_END; break;
             case KC_H: motion = VIM_MOTION_LEFT; break;
-            case KC_I: action = VIM_ACTION_INSERT_MODE; break;
             case KC_J: motion = VIM_MOTION_DOWN; break;
             case KC_K: motion = VIM_MOTION_UP; break;
             case KC_L: motion = VIM_MOTION_RIGHT; break;
@@ -338,15 +394,7 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
         switch (keycode) {
             case KC_4: /*$*/ motion = VIM_MOTION_LINE_END; break;
             case KC_6: /*^*/ motion = VIM_MOTION_LINE_START; break;
-            case KC_A:
-                action = VIM_ACTION_INSERT_MODE;
-                motion = VIM_MOTION_LINE_END;
-                break;
             case KC_B: motion = VIM_MOTION_WORD_START; break;
-            case KC_I:
-                action = VIM_ACTION_INSERT_MODE;
-                motion = VIM_MOTION_LINE_START;
-                break;
             case KC_E:
             case KC_W: motion = VIM_MOTION_WORD_END; break;
             case KC_X: motion = VIM_MOTION_DELETE_RIGHT; break;
@@ -362,10 +410,11 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
         return;
     }
 
-    if (action != VIM_ACTION_NONE) {
-        vim_perform_action(action, motion, record);
-    } else if (motion != VIM_MOTION_NONE) {
-        vim_perform_motion(motion, record);
+    if (motion != VIM_MOTION_NONE) {
+        vim_perform_motion(
+            motion,
+            record->event.pressed ? VIM_MOTION_TYPE_PRESS : VIM_MOTION_TYPE_RELEASE
+        );
     }
 }
 
