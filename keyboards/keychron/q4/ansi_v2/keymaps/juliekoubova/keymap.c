@@ -214,6 +214,10 @@ typedef enum {
     VIM_MOTION_WORD_END,
     VIM_MOTION_DOCUMENT_START,
     VIM_MOTION_DOCUMENT_END,
+    VIM_MOTION_PAGE_UP,
+    VIM_MOTION_PAGE_DOWN,
+    VIM_MOTION_DELETE_LEFT,
+    VIM_MOTION_DELETE_RIGHT,
 } vim_motion_t;
 
 
@@ -250,6 +254,10 @@ void vim_perform_motion(vim_motion_t motion, keyrecord_t *record) {
 		case VIM_MOTION_WORD_END: keycode = KC_RIGHT; mods = MOD_LCTL; break;
 		case VIM_MOTION_DOCUMENT_START: keycode = KC_HOME; mods = MOD_LCTL; break;
 		case VIM_MOTION_DOCUMENT_END: keycode = KC_END; mods = MOD_LCTL; break;
+		case VIM_MOTION_PAGE_UP: keycode = KC_PAGE_UP; break;
+		case VIM_MOTION_PAGE_DOWN: keycode = KC_PAGE_DOWN; break;
+		case VIM_MOTION_DELETE_LEFT: keycode = KC_BSPC; break;
+		case VIM_MOTION_DELETE_RIGHT: keycode = KC_DEL; break;
         default: return;
     }
 
@@ -297,6 +305,7 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
             case KC_J: motion = VIM_MOTION_DOWN; break;
             case KC_K: motion = VIM_MOTION_UP; break;
             case KC_L: motion = VIM_MOTION_RIGHT; break;
+            case KC_X: motion = VIM_MOTION_DELETE_LEFT; break;
             case KC_0: motion = VIM_MOTION_LINE_START; break;
             default: return;
         }
@@ -304,6 +313,16 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
         switch (keycode) {
             case KC_4: /*$*/ motion = VIM_MOTION_LINE_END; break;
             case KC_6: /*^*/ motion = VIM_MOTION_LINE_START; break;
+            case KC_B: motion = VIM_MOTION_WORD_START; break;
+            case KC_E:
+            case KC_W: motion = VIM_MOTION_WORD_END; break;
+            case KC_X: motion = VIM_MOTION_DELETE_RIGHT; break;
+            default: return;
+        }
+    } else if (vim_mods & MOD_MASK_CTRL) {
+        switch (keycode) {
+            case KC_B: motion = VIM_MOTION_PAGE_UP; break;
+            case KC_F: motion = VIM_MOTION_PAGE_DOWN; break;
             default: return;
         }
     } else {
