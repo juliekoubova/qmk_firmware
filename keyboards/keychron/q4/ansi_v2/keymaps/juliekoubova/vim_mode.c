@@ -77,6 +77,14 @@ void vim_cancel_os_selection(void) {
     tap_code(KC_LEFT);
 }
 
+void vim_delete_os_selection(void) {
+    tap_code16(C(KC_X));
+}
+
+void vim_yank_os_selection(void) {
+    tap_code16(C(KC_C));
+}
+
 void vim_enter_insert_mode(void) {
     if (vim_mode == VIM_INSERT_MODE) {
         return;
@@ -113,7 +121,7 @@ void vim_toggle_command_mode(void) {
     }
 }
 
-void vim_perform_motion(vim_motion_t motion, vim_motion_type_t type) {
+void vim_perform_motion_in_mode(vim_motion_t motion, vim_motion_type_t type, vim_mode_t mode) {
     uint16_t keycode = KC_NO;
     uint8_t mods = 0;
 
@@ -135,7 +143,7 @@ void vim_perform_motion(vim_motion_t motion, vim_motion_type_t type) {
         default: return;
     }
 
-    if (vim_mode == VIM_VISUAL_MODE) {
+    if (mode == VIM_VISUAL_MODE) {
         mods |= MOD_LSFT;
     }
 
@@ -164,6 +172,11 @@ void vim_perform_motion(vim_motion_t motion, vim_motion_type_t type) {
         unregister_mods(mods);
     }
 }
+
+void vim_perform_motion(vim_motion_t motion, vim_motion_type_t type) {
+    vim_perform_motion_in_mode(motion, type, vim_mode);
+}
+
 
 void vim_append_command(uint8_t keycode) {
     if (vim_command_buffer_size == VIM_COMMAND_BUFFER_SIZE) {
@@ -216,6 +229,31 @@ vim_motion_t vim_get_motion(uint16_t keycode) {
     }
 }
 
+void vim_delete_line(void) {
+    vim_perform_motion_in_mode(
+        VIM_MOTION_LINE_START,
+        VIM_MOTION_TYPE_TAP,
+        VIM_COMMAND_MODE
+    );
+    vim_perform_motion(VIM_MOTION_LINE_END, VIM_MOTION_TYPE_TAP);
+    vim_delete_os_selection();
+}
+
+void vim_yank_line(void) {
+    vim_perform_motion_in_mode(
+        VIM_MOTION_LINE_START,
+        VIM_MOTION_TYPE_TAP,
+        VIM_COMMAND_MODE
+    );
+    vim_perform_motion(VIM_MOTION_LINE_END, VIM_MOTION_TYPE_TAP);
+    vim_yank_os_selection();
+    vim_perform_motion_in_mode(
+        VIM_MOTION_LINE_START,
+        VIM_MOTION_TYPE_TAP,
+        VIM_COMMAND_MODE
+    );
+}
+
 void process_vim_command(uint16_t keycode, keyrecord_t *record) {
     vim_dprintf_key(__func__, keycode, record);
     if (record->event.pressed) {
@@ -252,6 +290,9 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
                     vim_enter_visual_mode();
                     vim_perform_motion(VIM_MOTION_LINE_END, VIM_MOTION_TYPE_TAP);
                     return;
+                case KC_Y:
+                    vim_yank_line();
+                    return;
             }
         }
     }
@@ -268,11 +309,37 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
 void process_vim_visual(uint16_t keycode, keyrecord_t *record) {
     vim_dprintf_key(__func__, keycode, record);
 
-    if (vim_mods == 0 && record->event.pressed) {
-        switch (keycode) {
-            case KC_ESC:
-                vim_enter_command_mode();
-                return;
+    if (record->event.pressed) {
+        if (vim_mods == 0) {
+            switch (keycode) {
+                case KC_ESC:
+                    vim_enter_command_mode();
+                    return;
+                case KC_C:
+                    vim_delete_os_selection();
+                    vim_enter_insert_mode();
+                    return;
+                case KC_D:
+                case KC_X:
+                    vim_delete_os_selection();
+                    return;
+                case KC_Y:
+                    vim_yank_os_selection();
+                    return;
+            }
+        } else if (vim_mods & MOD_MASK_SHIFT) {
+            switch (keycode) {
+                case KC_C:
+                    vim_delete_line();
+                    vim_enter_insert_mode();
+                case KC_D:
+                case KC_X:
+                    vim_delete_line();
+                    return;
+                case KC_Y:
+                    vim_yank_line();
+                    return;
+            }
         }
     }
 
