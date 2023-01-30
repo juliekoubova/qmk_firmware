@@ -1,4 +1,4 @@
-/* Copyright 2023 @ Julie Koubova (julie@koubova.net)
+/* Copyright 2023 (c) Julie Koubova (julie@koubova.net)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,6 +63,20 @@ static uint8_t vim_mods = 0;
 static uint8_t vim_command_buffer[VIM_COMMAND_BUFFER_SIZE] = {};
 static uint8_t vim_command_buffer_size = 0;
 
+void vim_dprintf_key(const char *function, uint16_t keycode, keyrecord_t *record) {
+    VIM_DPRINTF(
+        "%s vim_mods=%d keycode=%d pressed=%d\n", 
+        function,
+        vim_mods,
+        keycode,
+        record->event.pressed
+    );
+}
+
+void vim_cancel_os_selection(void) {
+    tap_code(KC_LEFT);
+}
+
 void vim_enter_insert_mode(void) {
     if (vim_mode == VIM_INSERT_MODE) {
         return;
@@ -75,10 +89,20 @@ void vim_enter_insert_mode(void) {
 void vim_enter_command_mode(void) {
     if (vim_mode == VIM_COMMAND_MODE) {
         return;
+    } else if (vim_mode == VIM_VISUAL_MODE) {
+        vim_cancel_os_selection();
     }
     vim_mode = VIM_COMMAND_MODE;
     vim_mods = get_mods();
     VIM_DPRINTF("Entering command mode vim_mods=%d\n", vim_mods);
+}
+
+void vim_enter_visual_mode(void) {
+    if (vim_mode == VIM_VISUAL_MODE) {
+        return;
+    }
+    vim_mode = VIM_VISUAL_MODE;
+    VIM_DPRINT("Entering visual mode\n");
 }
 
 void vim_toggle_command_mode(void) {
@@ -109,6 +133,10 @@ void vim_perform_motion(vim_motion_t motion, vim_motion_type_t type) {
 		case VIM_MOTION_DELETE_LEFT: keycode = KC_BSPC; break;
 		case VIM_MOTION_DELETE_RIGHT: keycode = KC_DEL; break;
         default: return;
+    }
+
+    if (vim_mode == VIM_VISUAL_MODE) {
+        mods |= MOD_LSFT;
     }
 
     if (mods && (type == VIM_MOTION_TYPE_PRESS || type == VIM_MOTION_TYPE_TAP)) {
@@ -153,23 +181,43 @@ void vim_append_command(uint8_t keycode) {
     dprint("\n");
 }
 
-void process_vim_command(uint16_t keycode, keyrecord_t *record) {
-
-    if (IS_MODIFIERS_KEYCODE(keycode)) {
-        if (record->event.pressed) {
-            vim_mods |= MOD_BIT(keycode);
-        } else {
-            vim_mods &= ~MOD_BIT(keycode);
+vim_motion_t vim_get_motion(uint16_t keycode) {
+    if (vim_mods == 0) {
+        switch (keycode) {
+            case KC_B: return VIM_MOTION_WORD_START;
+            case KC_E:
+            case KC_W: return VIM_MOTION_WORD_END;
+            case KC_H: return VIM_MOTION_LEFT;
+            case KC_J: return VIM_MOTION_DOWN;
+            case KC_K: return VIM_MOTION_UP;
+            case KC_L: return VIM_MOTION_RIGHT;
+            case KC_X: return VIM_MOTION_DELETE_LEFT;
+            case KC_0: return VIM_MOTION_LINE_START;
+            default: return VIM_MOTION_NONE;
         }
+    } else if (vim_mods & MOD_MASK_SHIFT) {
+        switch (keycode) {
+            case KC_4: /*$*/ return VIM_MOTION_LINE_END;
+            case KC_6: /*^*/ return VIM_MOTION_LINE_START;
+            case KC_B: return VIM_MOTION_WORD_START;
+            case KC_E:
+            case KC_W: return VIM_MOTION_WORD_END;
+            case KC_X: return VIM_MOTION_DELETE_RIGHT;
+            default: return VIM_MOTION_NONE;
+        }
+    } else if (vim_mods & MOD_MASK_CTRL) {
+        switch (keycode) {
+            case KC_B: return VIM_MOTION_PAGE_UP;
+            case KC_F: return VIM_MOTION_PAGE_DOWN;
+            default: return VIM_MOTION_NONE;
+        }
+    } else {
+        return VIM_MOTION_NONE;
     }
+}
 
-    VIM_DPRINTF(
-        "process vim command vim_mods=%d keycode=%d pressed=%d\n", 
-        vim_mods,
-        keycode,
-        record->event.pressed
-    );
-
+void process_vim_command(uint16_t keycode, keyrecord_t *record) {
+    vim_dprintf_key(__func__, keycode, record);
     if (record->event.pressed) {
         if (vim_mods == 0) {
             switch (keycode) {
@@ -185,6 +233,9 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
                 case KC_I:
                     vim_enter_insert_mode();
                     return;
+                case KC_V:
+                    vim_enter_visual_mode();
+                    return;
             }
         } else if (vim_mods & MOD_MASK_SHIFT) {
             switch (keycode) {
@@ -196,44 +247,36 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
                     vim_perform_motion(VIM_MOTION_LINE_START, VIM_MOTION_TYPE_TAP);
                     vim_enter_insert_mode();
                     return;
+                case KC_V:
+                    vim_perform_motion(VIM_MOTION_LINE_START, VIM_MOTION_TYPE_TAP);
+                    vim_enter_visual_mode();
+                    vim_perform_motion(VIM_MOTION_LINE_END, VIM_MOTION_TYPE_TAP);
+                    return;
             }
         }
     }
 
-    vim_motion_t motion = VIM_MOTION_NONE;
-    if (vim_mods == 0) {
+    vim_motion_t motion = vim_get_motion(keycode);
+    if (motion != VIM_MOTION_NONE) {
+        vim_perform_motion(
+            motion,
+            record->event.pressed ? VIM_MOTION_TYPE_PRESS : VIM_MOTION_TYPE_RELEASE
+        );
+    }
+}
+
+void process_vim_visual(uint16_t keycode, keyrecord_t *record) {
+    vim_dprintf_key(__func__, keycode, record);
+
+    if (vim_mods == 0 && record->event.pressed) {
         switch (keycode) {
-            case KC_B: motion = VIM_MOTION_WORD_START; break;
-            case KC_E:
-            case KC_W: motion = VIM_MOTION_WORD_END; break;
-            case KC_H: motion = VIM_MOTION_LEFT; break;
-            case KC_J: motion = VIM_MOTION_DOWN; break;
-            case KC_K: motion = VIM_MOTION_UP; break;
-            case KC_L: motion = VIM_MOTION_RIGHT; break;
-            case KC_X: motion = VIM_MOTION_DELETE_LEFT; break;
-            case KC_0: motion = VIM_MOTION_LINE_START; break;
-            default: return;
+            case KC_ESC:
+                vim_enter_command_mode();
+                return;
         }
-    } else if (vim_mods & MOD_MASK_SHIFT) {
-        switch (keycode) {
-            case KC_4: /*$*/ motion = VIM_MOTION_LINE_END; break;
-            case KC_6: /*^*/ motion = VIM_MOTION_LINE_START; break;
-            case KC_B: motion = VIM_MOTION_WORD_START; break;
-            case KC_E:
-            case KC_W: motion = VIM_MOTION_WORD_END; break;
-            case KC_X: motion = VIM_MOTION_DELETE_RIGHT; break;
-            default: return;
-        }
-    } else if (vim_mods & MOD_MASK_CTRL) {
-        switch (keycode) {
-            case KC_B: motion = VIM_MOTION_PAGE_UP; break;
-            case KC_F: motion = VIM_MOTION_PAGE_DOWN; break;
-            default: return;
-        }
-    } else {
-        return;
     }
 
+    vim_motion_t motion = vim_get_motion(keycode);
     if (motion != VIM_MOTION_NONE) {
         vim_perform_motion(
             motion,
@@ -266,10 +309,25 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
         return false;
     }
 
+    if (vim_mode != VIM_INSERT_MODE) {
+        if (IS_MODIFIERS_KEYCODE(keycode)) {
+            if (record->event.pressed) {
+                vim_mods |= MOD_BIT(keycode);
+            } else {
+                vim_mods &= ~MOD_BIT(keycode);
+            }
+        }
+    }
+
+
     if (vim_mode == VIM_COMMAND_MODE || vim_key_pressed) {
         process_vim_command(keycode, record);
         return false;
+    } else if (vim_mode == VIM_VISUAL_MODE) {
+        process_vim_visual(keycode, record);
+        return false;
     }
+
 
     return true;
 }
