@@ -386,7 +386,6 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
         }
     }
 
-
     if (vim_mode == VIM_COMMAND_MODE || vim_key_pressed) {
         process_vim_command(keycode, record);
         return false;
@@ -394,7 +393,6 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
         process_vim_visual(keycode, record);
         return false;
     }
-
 
     return true;
 }
