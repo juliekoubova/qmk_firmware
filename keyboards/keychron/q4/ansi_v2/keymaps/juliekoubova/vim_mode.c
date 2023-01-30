@@ -44,11 +44,20 @@ typedef enum {
     VIM_MOTION_DELETE_RIGHT,
 } vim_motion_t;
 
+// actions are like motions in that they repeat
+// when the key is pressed, so we can't just tap
+// them, we have to forward both register and unregister
 typedef enum {
-    VIM_MOTION_TYPE_TAP,
-    VIM_MOTION_TYPE_PRESS,
-    VIM_MOTION_TYPE_RELEASE,
-} vim_motion_type_t;
+    VIM_ACTION_NONE,
+    VIM_ACTION_PASTE,
+    VIM_ACTION_UNDO,
+} vim_action_t;
+
+typedef enum {
+    VIM_SEND_TAP,
+    VIM_SEND_PRESS,
+    VIM_SEND_RELEASE,
+} vim_send_type_t;
 
 #ifndef VIM_COMMAND_BUFFER_SIZE
 #   define VIM_COMMAND_BUFFER_SIZE 10
@@ -73,16 +82,43 @@ void vim_dprintf_key(const char *function, uint16_t keycode, keyrecord_t *record
     );
 }
 
+void vim_send(uint8_t mods, uint16_t keycode, vim_send_type_t type) {
+    if (mods && (type == VIM_SEND_PRESS || type == VIM_SEND_TAP)) {
+        VIM_DPRINTF("register mods=%d\n", mods);
+        register_mods(mods);
+    }
+
+    switch (type) {
+        case VIM_SEND_TAP:
+            VIM_DPRINTF("tap keycode=%d\n", keycode);
+            tap_code(keycode);
+            break;
+        case VIM_SEND_PRESS:
+            VIM_DPRINTF("register keycode=%d\n", keycode);
+            register_code(keycode);
+            break;
+        case VIM_SEND_RELEASE:
+            VIM_DPRINTF("unregister keycode=%d\n", keycode);
+            unregister_code(keycode);
+            break;
+    }
+
+    if (mods && (type == VIM_SEND_RELEASE || type == VIM_SEND_TAP)) {
+        VIM_DPRINTF("unregister mods=%d\n", mods);
+        unregister_mods(mods);
+    }
+}
+
 void vim_cancel_os_selection(void) {
-    tap_code(KC_LEFT);
+    vim_send(0, KC_LEFT, VIM_SEND_TAP);
 }
 
 void vim_delete_os_selection(void) {
-    tap_code16(C(KC_X));
+    vim_send(MOD_LCTL, KC_X, VIM_SEND_TAP);
 }
 
 void vim_yank_os_selection(void) {
-    tap_code16(C(KC_C));
+    vim_send(MOD_LCTL, KC_C, VIM_SEND_TAP);
 }
 
 void vim_enter_insert_mode(void) {
@@ -121,7 +157,7 @@ void vim_toggle_command_mode(void) {
     }
 }
 
-void vim_perform_motion_in_mode(vim_motion_t motion, vim_motion_type_t type, vim_mode_t mode) {
+void vim_perform_motion_in_mode(vim_motion_t motion, vim_send_type_t type, vim_mode_t mode) {
     uint16_t keycode = KC_NO;
     uint8_t mods = 0;
 
@@ -147,36 +183,25 @@ void vim_perform_motion_in_mode(vim_motion_t motion, vim_motion_type_t type, vim
         mods |= MOD_LSFT;
     }
 
-    if (mods && (type == VIM_MOTION_TYPE_PRESS || type == VIM_MOTION_TYPE_TAP)) {
-        VIM_DPRINTF("register mods=%d\n", mods);
-        register_mods(mods);
-    }
-
-    switch (type) {
-        case VIM_MOTION_TYPE_TAP:
-            VIM_DPRINTF("tap keycode=%d\n", keycode);
-            tap_code(keycode);
-            break;
-        case VIM_MOTION_TYPE_PRESS:
-            VIM_DPRINTF("register keycode=%d\n", keycode);
-            register_code(keycode);
-            break;
-        case VIM_MOTION_TYPE_RELEASE:
-            VIM_DPRINTF("unregister keycode=%d\n", keycode);
-            unregister_code(keycode);
-            break;
-    }
-
-    if (mods && (type == VIM_MOTION_TYPE_RELEASE || type == VIM_MOTION_TYPE_TAP)) {
-        VIM_DPRINTF("unregister mods=%d\n", mods);
-        unregister_mods(mods);
-    }
+    vim_send(mods, keycode, type);
 }
 
-void vim_perform_motion(vim_motion_t motion, vim_motion_type_t type) {
+void vim_perform_motion(vim_motion_t motion, vim_send_type_t type) {
     vim_perform_motion_in_mode(motion, type, vim_mode);
 }
 
+void vim_perform_action(vim_action_t action, vim_send_type_t type) {
+    switch (action) {
+        case VIM_ACTION_PASTE:
+            vim_send(MOD_LCTL, KC_V, type);
+            break;
+        case VIM_ACTION_UNDO:
+            vim_send(MOD_LCTL, KC_Z, type);
+            break;
+        default:
+            break;
+    }
+}
 
 void vim_append_command(uint8_t keycode) {
     if (vim_command_buffer_size == VIM_COMMAND_BUFFER_SIZE) {
@@ -192,6 +217,23 @@ void vim_append_command(uint8_t keycode) {
         dprintf("%d ", vim_command_buffer[i]);
     }
     dprint("\n");
+}
+
+vim_action_t vim_get_action(uint16_t keycode) {
+    if (vim_mods == 0) {
+        switch (keycode) {
+            case KC_P: return VIM_ACTION_PASTE;
+            case KC_U: return VIM_ACTION_UNDO;
+            default: return VIM_ACTION_NONE;
+        }
+    } else if (vim_mods & MOD_MASK_SHIFT) {
+        switch (keycode) {
+            case KC_P: return VIM_ACTION_PASTE;
+            default: return VIM_ACTION_NONE;
+        }
+    } else {
+        return VIM_ACTION_NONE;
+    }
 }
 
 vim_motion_t vim_get_motion(uint16_t keycode) {
@@ -232,24 +274,24 @@ vim_motion_t vim_get_motion(uint16_t keycode) {
 void vim_delete_line(void) {
     vim_perform_motion_in_mode(
         VIM_MOTION_LINE_START,
-        VIM_MOTION_TYPE_TAP,
+        VIM_SEND_TAP,
         VIM_COMMAND_MODE
     );
-    vim_perform_motion(VIM_MOTION_LINE_END, VIM_MOTION_TYPE_TAP);
+    vim_perform_motion(VIM_MOTION_LINE_END, VIM_SEND_TAP);
     vim_delete_os_selection();
 }
 
 void vim_yank_line(void) {
     vim_perform_motion_in_mode(
         VIM_MOTION_LINE_START,
-        VIM_MOTION_TYPE_TAP,
+        VIM_SEND_TAP,
         VIM_COMMAND_MODE
     );
-    vim_perform_motion(VIM_MOTION_LINE_END, VIM_MOTION_TYPE_TAP);
+    vim_perform_motion(VIM_MOTION_LINE_END, VIM_SEND_TAP);
     vim_yank_os_selection();
     vim_perform_motion_in_mode(
         VIM_MOTION_LINE_START,
-        VIM_MOTION_TYPE_TAP,
+        VIM_SEND_TAP,
         VIM_COMMAND_MODE
     );
 }
@@ -265,7 +307,7 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
                     vim_append_command(keycode);
                     return;
                 case KC_A:
-                    vim_perform_motion(VIM_MOTION_RIGHT, VIM_MOTION_TYPE_TAP);
+                    vim_perform_motion(VIM_MOTION_RIGHT, VIM_SEND_TAP);
                     vim_enter_insert_mode();
                     return;
                 case KC_I:
@@ -278,17 +320,17 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
         } else if (vim_mods & MOD_MASK_SHIFT) {
             switch (keycode) {
                 case KC_A:
-                    vim_perform_motion(VIM_MOTION_LINE_END, VIM_MOTION_TYPE_TAP);
+                    vim_perform_motion(VIM_MOTION_LINE_END, VIM_SEND_TAP);
                     vim_enter_insert_mode();
                     return;
                 case KC_I:
-                    vim_perform_motion(VIM_MOTION_LINE_START, VIM_MOTION_TYPE_TAP);
+                    vim_perform_motion(VIM_MOTION_LINE_START, VIM_SEND_TAP);
                     vim_enter_insert_mode();
                     return;
                 case KC_V:
-                    vim_perform_motion(VIM_MOTION_LINE_START, VIM_MOTION_TYPE_TAP);
+                    vim_perform_motion(VIM_MOTION_LINE_START, VIM_SEND_TAP);
                     vim_enter_visual_mode();
-                    vim_perform_motion(VIM_MOTION_LINE_END, VIM_MOTION_TYPE_TAP);
+                    vim_perform_motion(VIM_MOTION_LINE_END, VIM_SEND_TAP);
                     return;
                 case KC_Y:
                     vim_yank_line();
@@ -297,18 +339,25 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
         }
     }
 
+    vim_send_type_t send_type = record->event.pressed
+        ? VIM_SEND_PRESS
+        : VIM_SEND_RELEASE;
+
+    vim_action_t action = vim_get_action(keycode);
+    if (action != VIM_ACTION_NONE) {
+        vim_perform_action(action, send_type);
+        return;
+    }
+
     vim_motion_t motion = vim_get_motion(keycode);
     if (motion != VIM_MOTION_NONE) {
-        vim_perform_motion(
-            motion,
-            record->event.pressed ? VIM_MOTION_TYPE_PRESS : VIM_MOTION_TYPE_RELEASE
-        );
+        vim_perform_motion(motion, send_type);
     }
 }
 
 void process_vim_visual(uint16_t keycode, keyrecord_t *record) {
     vim_dprintf_key(__func__, keycode, record);
-
+  
     if (record->event.pressed) {
         if (vim_mods == 0) {
             switch (keycode) {
@@ -343,12 +392,19 @@ void process_vim_visual(uint16_t keycode, keyrecord_t *record) {
         }
     }
 
+    vim_send_type_t send_type = record->event.pressed
+        ? VIM_SEND_PRESS
+        : VIM_SEND_RELEASE;
+
+    vim_action_t action = vim_get_action(keycode);
+    if (action != VIM_ACTION_NONE) {
+        vim_perform_action(action, send_type);
+        return;
+    }
+
     vim_motion_t motion = vim_get_motion(keycode);
     if (motion != VIM_MOTION_NONE) {
-        vim_perform_motion(
-            motion,
-            record->event.pressed ? VIM_MOTION_TYPE_PRESS : VIM_MOTION_TYPE_RELEASE
-        );
+        vim_perform_motion(motion, send_type);
     }
 }
 
