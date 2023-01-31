@@ -24,132 +24,27 @@ enum layers {
 
 enum key_codes {
     QK_VIM = SAFE_RANGE,
-    QK_VIM_B,
-    QK_VIM_F,
-};
-
-enum tap_dances {
-    TD_FN_ESC,
-    TD_VIM_G,
 };
 
 // clang-format off
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [BASE] = LAYOUT_ansi_61(
-        KC_ESC,        KC_1,     KC_2,        KC_3,    KC_4,     KC_5,         KC_6,       KC_7,    KC_8,    KC_9,     KC_0,           KC_MINS,  KC_EQL,   KC_BSPC,
-        KC_TAB,        KC_Q,     KC_W,        KC_E,    KC_R,     KC_T,         KC_Y,       KC_U,    KC_I,    KC_O,     KC_P,           KC_LBRC,  KC_RBRC,  KC_BSLS,
-        TD(TD_FN_ESC), KC_A,     KC_S,        KC_D,    KC_F,     KC_G,         KC_H,       KC_J,    KC_K,    KC_L,     KC_SCLN,        KC_QUOT,            KC_ENT,
-        KC_LSFT,       KC_Z,     KC_X,        KC_C,    KC_V,     KC_B,         KC_N,       KC_M,    KC_COMM, KC_DOT,   KC_SLSH,                            KC_RSFT,
-        KC_LCTL,       KC_LOPT,  KC_LCMD,                                      KC_SPC,                                 QK_VIM,  KC_RCMD,  KC_ROPT,  KC_RCTL),
+        KC_ESC,  KC_1,    KC_2,    KC_3,    KC_4,    KC_5,    KC_6,    KC_7,    KC_8,    KC_9,    KC_0,    KC_MINS, KC_EQL,  KC_BSPC,
+        KC_TAB,  KC_Q,    KC_W,    KC_E,    KC_R,    KC_T,    KC_Y,    KC_U,    KC_I,    KC_O,    KC_P,    KC_LBRC, KC_RBRC, KC_BSLS,
+        QK_VIM,  KC_A,    KC_S,    KC_D,    KC_F,    KC_G,    KC_H,    KC_J,    KC_K,    KC_L,    KC_SCLN, KC_QUOT,          KC_ENT,
+        KC_LSFT, KC_Z,    KC_X,    KC_C,    KC_V,    KC_B,    KC_N,    KC_M,    KC_COMM, KC_DOT,  KC_SLSH,                   KC_RSFT,
+        KC_LCTL, KC_LOPT, KC_LCMD,                            KC_SPC,                             MO(FN),  KC_RCMD, KC_ROPT, KC_RCTL),
 
     [FN] = LAYOUT_ansi_61(
-        KC_GRAVE,      KC_F1,    KC_F2,       KC_F3,   KC_F4,    KC_F5,        KC_F6,      KC_F7,   KC_F8,   KC_F9,    KC_F10,         KC_F11,   KC_F12,   KC_LEFT,
-        XXXXXXX,       XXXXXXX,  C(KC_RIGHT), XXXXXXX, KC_INS,   XXXXXXX,      XXXXXXX,    XXXXXXX, KC_HOME, XXXXXXX,  XXXXXXX,        KC_VOLD,  KC_VOLU,  KC_MUTE,
-        _______,       KC_END,   XXXXXXX,     XXXXXXX, QK_VIM_F, TD(TD_VIM_G), KC_LEFT,    KC_DOWN, KC_UP,   KC_RIGHT, XXXXXXX,        XXXXXXX,            XXXXXXX,
-        _______,       XXXXXXX,  KC_DEL,      XXXXXXX, XXXXXXX,  QK_VIM_B,     XXXXXXX,    XXXXXXX, XXXXXXX, XXXXXXX,  XXXXXXX,                            _______,
-        _______,       _______,  _______,                                      KC_RIGHT,                               _______,        _______,  _______,  _______)
+        KC_GRAVE, KC_F1,   KC_F2,   KC_F3,   KC_F4,   KC_F5,   KC_F6,   KC_F7,   KC_F8,   KC_F9,   KC_F10,  KC_F11,  KC_F12,  _______,
+        _______,  _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, KC_VOLD, KC_VOLU, KC_MUTE,
+        _______,  _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,          _______,
+        _______,  _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,                   _______,
+        _______,  _______, _______,                            _______,                            _______, _______, _______, _______)
 };
 
 // clang-format on
-
-// ============================================================================
-// Key Overrides
-// ============================================================================
-
-#define LAYER_BIT(layer) (1 << layer)
-
-// Fn+X       = forward delete
-// Fn+Shift+X = backspace
-const key_override_t fn_shift_x = ko_make_with_layers(
-    MOD_MASK_SHIFT, KC_DEL,
-    KC_BSPC,
-    LAYER_BIT(FN)
-);
-
-// Fn+B = Ctrl-left (jump one word to the left)
-const key_override_t fn_b = ko_make_with_layers_and_negmods(
-    0, QK_VIM_B,
-    C(KC_LEFT),
-    LAYER_BIT(FN),
-    MOD_MASK_CTRL
-);
-
-// Fn+Ctrl+B = Page Up
-const key_override_t fn_ctrl_b = ko_make_with_layers(
-    MOD_MASK_CTRL, QK_VIM_B,
-    KC_PAGE_UP,
-    LAYER_BIT(FN)
-);
-
-// Fn+Ctrl+F = Page Down
-const key_override_t fn_ctrl_f = ko_make_with_layers(
-    MOD_MASK_CTRL, QK_VIM_F,
-    KC_PAGE_DOWN,
-    LAYER_BIT(FN)
-);
-
-
-const key_override_t **key_overrides = (const key_override_t*[]){
-    &fn_shift_x,
-    &fn_b,
-    &fn_ctrl_b,
-    &fn_ctrl_f,
-    NULL
-};
-
-// ============================================================================
-// Tap Dances
-// ============================================================================
-
-typedef enum {
-    TD_NONE,
-    TD_SINGLE_TAP,
-    TD_DOUBLE_TAP,
-    TD_SINGLE_HOLD,
-} td_state_t;
-
-static td_state_t td_state;
-
-td_state_t cur_dance(qk_tap_dance_state_t *state) {
-    switch (state->count) {
-        case 1: return state->pressed ? TD_SINGLE_HOLD : TD_SINGLE_TAP;
-        case 2: return TD_DOUBLE_TAP;
-        default: return TD_NONE;
-    }
-}
-
-void fn_esc_finished(qk_tap_dance_state_t *state, void *user_data) {
-    td_state = cur_dance(state);
-    switch (td_state) {
-        case TD_SINGLE_TAP:
-            tap_code(KC_ESC);
-            break;
-        case TD_SINGLE_HOLD:
-            layer_on(FN);
-            break;
-        case TD_DOUBLE_TAP:
-            if (layer_state_is(FN)) {
-                layer_off(FN);
-            } else {
-                layer_on(FN);
-            }
-            break;
-        default: break;
-    }
-}
-
-void fn_esc_reset(qk_tap_dance_state_t *state, void *user_data) {
-    if (td_state == TD_SINGLE_HOLD) {
-        layer_off(FN);
-    }
-    td_state = TD_NONE;
-}
-
-qk_tap_dance_action_t tap_dance_actions[] = {
-    [TD_FN_ESC] = ACTION_TAP_DANCE_FN_ADVANCED(NULL, fn_esc_finished, fn_esc_reset),
-    [TD_VIM_G] = ACTION_TAP_DANCE_DOUBLE(C(KC_END), C(KC_HOME)),
-};
 
 // ============================================================================
 // RGB Matrix

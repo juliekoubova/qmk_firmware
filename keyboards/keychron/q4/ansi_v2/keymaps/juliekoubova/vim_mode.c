@@ -246,7 +246,7 @@ vim_motion_t vim_get_motion(uint16_t keycode) {
             case KC_J: return VIM_MOTION_DOWN;
             case KC_K: return VIM_MOTION_UP;
             case KC_L: return VIM_MOTION_RIGHT;
-            case KC_X: return VIM_MOTION_DELETE_LEFT;
+            case KC_X: return VIM_MOTION_DELETE_RIGHT;
             case KC_0: return VIM_MOTION_LINE_START;
             default: return VIM_MOTION_NONE;
         }
@@ -257,7 +257,7 @@ vim_motion_t vim_get_motion(uint16_t keycode) {
             case KC_B: return VIM_MOTION_WORD_START;
             case KC_E:
             case KC_W: return VIM_MOTION_WORD_END;
-            case KC_X: return VIM_MOTION_DELETE_RIGHT;
+            case KC_X: return VIM_MOTION_DELETE_LEFT;
             default: return VIM_MOTION_NONE;
         }
     } else if (vim_mods & MOD_MASK_CTRL) {
