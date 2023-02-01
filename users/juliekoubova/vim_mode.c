@@ -337,12 +337,13 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
             switch (keycode) {
                 case KC_1 ... KC_9:
                 case KC_C:
+                case KC_D:
+                case KC_Y:
+                    vim_append_command(keycode);
+                    return;
                 case KC_A:
                     vim_perform_action(VIM_ACTION_RIGHT, VIM_SEND_TAP);
                     vim_enter_insert_mode();
-                    return;
-                case KC_D:
-                    vim_append_command(keycode);
                     return;
                 case KC_G:
                     if (vim_command_buffer_tail() == KC_G) {
@@ -366,6 +367,15 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
                     vim_perform_action(VIM_ACTION_LINE_END, VIM_SEND_TAP);
                     vim_enter_insert_mode();
                     return;
+                case KC_C:
+                    vim_perform_action_in_mode(VIM_ACTION_LINE_END, VIM_SEND_TAP, VIM_VISUAL_MODE);
+                    vim_delete_os_selection();
+                    vim_enter_insert_mode();
+                    return;
+                case KC_D:
+                    vim_perform_action_in_mode(VIM_ACTION_LINE_END, VIM_SEND_TAP, VIM_VISUAL_MODE);
+                    vim_delete_os_selection();
+                    return;
                 case KC_I:
                     vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
                     vim_enter_insert_mode();
@@ -383,12 +393,8 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
     }
 
     vim_send_type_t send_type = record->event.pressed ? VIM_SEND_PRESS : VIM_SEND_RELEASE;
-
-    vim_action_t action = vim_get_action(keycode, record->event.pressed);
-    if (action != VIM_ACTION_NONE) {
-        vim_perform_action(action, send_type);
-        return;
-    }
+    vim_action_t    action    = vim_get_action(keycode, record->event.pressed);
+    vim_perform_action(action, send_type);
 }
 
 void process_vim_visual(uint16_t keycode, keyrecord_t *record) {
@@ -438,12 +444,8 @@ void process_vim_visual(uint16_t keycode, keyrecord_t *record) {
     }
 
     vim_send_type_t send_type = record->event.pressed ? VIM_SEND_PRESS : VIM_SEND_RELEASE;
-
-    vim_action_t action = vim_get_action(keycode, record->event.pressed);
-    if (action != VIM_ACTION_NONE) {
-        vim_perform_action(action, send_type);
-        return;
-    }
+    vim_action_t    action    = vim_get_action(keycode, record->event.pressed);
+    vim_perform_action(action, send_type);
 }
 
 bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keycode) {
@@ -542,12 +544,13 @@ bool vim_is_active_key(uint16_t keycode) {
         if (vim_mods == 0) {
             switch (keycode) {
                 case KC_1 ... KC_9:
-                case KC_C:
                 case KC_A:
+                case KC_C:
                 case KC_D:
                 case KC_G:
                 case KC_I:
                 case KC_V:
+                case KC_Y:
                     return true;
                 default:
                     return false;
@@ -555,6 +558,8 @@ bool vim_is_active_key(uint16_t keycode) {
         } else if (vim_mods & MOD_MASK_SHIFT) {
             switch (keycode) {
                 case KC_A:
+                case KC_C:
+                case KC_D:
                 case KC_I:
                 case KC_V:
                 case KC_Y:
