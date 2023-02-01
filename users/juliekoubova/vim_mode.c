@@ -20,7 +20,7 @@
 #define VIM_DPRINT(s) dprint("[vim] " s)
 #define VIM_DPRINTF(...) dprintf("[vim] " __VA_ARGS__)
 
-typedef enum {
+enum {
     VIM_ACTION_NONE,
 
     VIM_ACTION_LEFT,
@@ -39,10 +39,22 @@ typedef enum {
 
     VIM_ACTION_PASTE,
     VIM_ACTION_UNDO,
+};
 
-    VIM_ACTION_DELETE_LEFT,
-    VIM_ACTION_DELETE_RIGHT,
-} vim_action_t;
+enum {
+    VIM_MOD_MOVE   = 0,
+    VIM_MOD_CHANGE = 0x0100,
+    VIM_MOD_DELETE = 0x0200,
+    VIM_MOD_SELECT = 0x0400,
+    VIM_MOD_YANK   = 0x0800,
+};
+
+enum {
+    VIM_MASK_ACTION = 0x00ff,
+    VIM_MASK_MOD    = 0xff00,
+};
+
+typedef uint16_t vim_action_t;
 
 typedef enum {
     VIM_SEND_TAP,
@@ -95,32 +107,32 @@ uint8_t vim_command_buffer_tail(void) {
 }
 
 void vim_dprintf_key(const char *function, uint16_t keycode, keyrecord_t *record) {
-    VIM_DPRINTF("%s vim_mods=%d keycode=%d pressed=%d\n", function, vim_mods, keycode, record->event.pressed);
+    VIM_DPRINTF("%s vim_mods=%x keycode=%x pressed=%d\n", function, vim_mods, keycode, record->event.pressed);
 }
 
 void vim_send(uint8_t mods, uint16_t keycode, vim_send_type_t type) {
     if (mods && (type == VIM_SEND_PRESS || type == VIM_SEND_TAP)) {
-        VIM_DPRINTF("register mods=%d\n", mods);
+        VIM_DPRINTF("register mods=%x\n", mods);
         register_mods(mods);
     }
 
     switch (type) {
         case VIM_SEND_TAP:
-            VIM_DPRINTF("tap keycode=%d\n", keycode);
+            VIM_DPRINTF("tap keycode=%x\n", keycode);
             tap_code(keycode);
             break;
         case VIM_SEND_PRESS:
-            VIM_DPRINTF("register keycode=%d\n", keycode);
+            VIM_DPRINTF("register keycode=%x\n", keycode);
             register_code(keycode);
             break;
         case VIM_SEND_RELEASE:
-            VIM_DPRINTF("unregister keycode=%d\n", keycode);
+            VIM_DPRINTF("unregister keycode=%x\n", keycode);
             unregister_code(keycode);
             break;
     }
 
     if (mods && (type == VIM_SEND_RELEASE || type == VIM_SEND_TAP)) {
-        VIM_DPRINTF("unregister mods=%d\n", mods);
+        VIM_DPRINTF("unregister mods=%x\n", mods);
         unregister_mods(mods);
     }
 }
@@ -154,7 +166,7 @@ void vim_enter_command_mode(void) {
         return;
     }
 
-    VIM_DPRINTF("Entering command mode vim_mods=%d\n", vim_mods);
+    VIM_DPRINTF("Entering command mode vim_mods=%x\n", vim_mods);
 
     if (vim_mode == VIM_VISUAL_MODE) {
         vim_cancel_os_selection();
@@ -183,80 +195,93 @@ void vim_toggle_command_mode(void) {
     }
 }
 
-void vim_perform_action_in_mode(vim_action_t action, vim_send_type_t type, vim_mode_t mode) {
-    uint16_t keycode = KC_NO;
-    uint8_t  mods    = 0;
-
-    switch (action) {
+void vim_perform_action(vim_action_t action, vim_send_type_t type) {
+    // these are repeating, so we send press or release based on passed type
+    switch (action & VIM_MASK_ACTION) {
         case VIM_ACTION_PASTE:
             vim_send(MOD_LCTL, KC_V, type);
             return;
         case VIM_ACTION_UNDO:
             vim_send(MOD_LCTL, KC_Z, type);
             return;
-
-        case VIM_ACTION_LEFT:
-            keycode = KC_LEFT;
-            break;
-        case VIM_ACTION_DOWN:
-            keycode = KC_DOWN;
-            break;
-        case VIM_ACTION_UP:
-            keycode = KC_UP;
-            break;
-        case VIM_ACTION_RIGHT:
-            keycode = KC_RIGHT;
-            break;
-        case VIM_ACTION_LINE_START:
-            keycode = KC_HOME;
-            break;
-        case VIM_ACTION_LINE_END:
-            keycode = KC_END;
-            break;
-        case VIM_ACTION_WORD_START:
-            keycode = KC_LEFT;
-            mods    = MOD_LCTL;
-            break;
-        case VIM_ACTION_WORD_END:
-            keycode = KC_RIGHT;
-            mods    = MOD_LCTL;
-            break;
-        case VIM_ACTION_DOCUMENT_START:
-            keycode = KC_HOME;
-            mods    = MOD_LCTL;
-            break;
-        case VIM_ACTION_DOCUMENT_END:
-            keycode = KC_END;
-            mods    = MOD_LCTL;
-            break;
-        case VIM_ACTION_PAGE_UP:
-            keycode = KC_PAGE_UP;
-            break;
-        case VIM_ACTION_PAGE_DOWN:
-            keycode = KC_PAGE_DOWN;
-            break;
-        case VIM_ACTION_DELETE_LEFT:
-            keycode = KC_BSPC;
-            break;
-        case VIM_ACTION_DELETE_RIGHT:
-            keycode = KC_DEL;
-            break;
         default:
-            return;
+            break;
     }
 
-    if (mode == VIM_VISUAL_MODE) {
-        mods |= MOD_LSFT;
+    uint16_t keycode = KC_NO;
+    uint8_t  mods    = 0;
+
+    if (action == (VIM_MOD_DELETE | VIM_ACTION_LEFT)) {
+        keycode = KC_BSPC;
+        action &= ~VIM_MOD_DELETE;
+    } else if (action == (VIM_MOD_DELETE | VIM_ACTION_RIGHT)) {
+        keycode = KC_DEL;
+        action &= ~VIM_MOD_DELETE;
+    } else {
+        switch (action & VIM_MASK_ACTION) {
+            case VIM_ACTION_LEFT:
+                keycode = KC_LEFT;
+                break;
+            case VIM_ACTION_DOWN:
+                keycode = KC_DOWN;
+                break;
+            case VIM_ACTION_UP:
+                keycode = KC_UP;
+                break;
+            case VIM_ACTION_RIGHT:
+                keycode = KC_RIGHT;
+                break;
+            case VIM_ACTION_LINE_START:
+                keycode = KC_HOME;
+                break;
+            case VIM_ACTION_LINE_END:
+                keycode = KC_END;
+                break;
+            case VIM_ACTION_WORD_START:
+                keycode = KC_LEFT;
+                mods    = MOD_LCTL;
+                break;
+            case VIM_ACTION_WORD_END:
+                keycode = KC_RIGHT;
+                mods    = MOD_LCTL;
+                break;
+            case VIM_ACTION_DOCUMENT_START:
+                keycode = KC_HOME;
+                mods    = MOD_LCTL;
+                break;
+            case VIM_ACTION_DOCUMENT_END:
+                keycode = KC_END;
+                mods    = MOD_LCTL;
+                break;
+            case VIM_ACTION_PAGE_UP:
+                keycode = KC_PAGE_UP;
+                break;
+            case VIM_ACTION_PAGE_DOWN:
+                keycode = KC_PAGE_DOWN;
+                break;
+            default:
+                return;
+        }
     }
 
-    vim_send(mods, keycode, type);
+    if (action & (VIM_MOD_DELETE | VIM_MOD_CHANGE)) {
+        // send shifted action as a tap
+        vim_send(mods | MOD_LSFT, keycode, VIM_SEND_TAP);
+        vim_delete_os_selection();
+        if (action & VIM_MOD_CHANGE) {
+            vim_enter_insert_mode();
+        }
+    } else if (action & VIM_MOD_YANK) {
+        vim_send(mods | MOD_LSFT, keycode, VIM_SEND_TAP);
+        vim_yank_os_selection();
+    } else if (action & VIM_MOD_SELECT) {
+        vim_send(mods | MOD_LSFT, keycode, type);
+    } else {
+        vim_send(mods, keycode, type);
+    }
 }
 
-void vim_perform_action(vim_action_t action, vim_send_type_t type) {
-    vim_perform_action_in_mode(action, type, vim_mode);
-}
-
-vim_action_t vim_get_action(uint16_t keycode, bool pressed) {
+vim_action_t vim_get_action(uint16_t keycode) {
     if (vim_mods == 0) {
         switch (keycode) {
             case KC_B:
@@ -277,7 +302,7 @@ vim_action_t vim_get_action(uint16_t keycode, bool pressed) {
             case KC_U:
                 return VIM_ACTION_UNDO;
             case KC_X:
-                return VIM_ACTION_DELETE_RIGHT;
+                return VIM_ACTION_RIGHT | VIM_MOD_DELETE;
             case KC_0:
                 return VIM_ACTION_LINE_START;
             default:
@@ -299,7 +324,7 @@ vim_action_t vim_get_action(uint16_t keycode, bool pressed) {
             case KC_P:
                 return VIM_ACTION_PASTE;
             case KC_X:
-                return VIM_ACTION_DELETE_LEFT;
+                return VIM_ACTION_LEFT | VIM_MOD_DELETE;
             default:
                 return VIM_ACTION_NONE;
         }
@@ -318,16 +343,16 @@ vim_action_t vim_get_action(uint16_t keycode, bool pressed) {
 }
 
 void vim_delete_line(void) {
-    vim_perform_action_in_mode(VIM_ACTION_LINE_START, VIM_SEND_TAP, VIM_COMMAND_MODE);
-    vim_perform_action(VIM_ACTION_LINE_END, VIM_SEND_TAP);
+    vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
+    vim_perform_action(VIM_MOD_SELECT | VIM_ACTION_LINE_END, VIM_SEND_TAP);
     vim_delete_os_selection();
 }
 
 void vim_yank_line(void) {
-    vim_perform_action_in_mode(VIM_ACTION_LINE_START, VIM_SEND_TAP, VIM_COMMAND_MODE);
-    vim_perform_action(VIM_ACTION_LINE_END, VIM_SEND_TAP);
+    vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
+    vim_perform_action(VIM_MOD_SELECT | VIM_ACTION_LINE_END, VIM_SEND_TAP);
     vim_yank_os_selection();
-    vim_perform_action_in_mode(VIM_ACTION_LINE_START, VIM_SEND_TAP, VIM_COMMAND_MODE);
+    vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
 }
 
 void process_vim_command(uint16_t keycode, keyrecord_t *record) {
@@ -368,12 +393,12 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
                     vim_enter_insert_mode();
                     return;
                 case KC_C:
-                    vim_perform_action_in_mode(VIM_ACTION_LINE_END, VIM_SEND_TAP, VIM_VISUAL_MODE);
+                    vim_perform_action(VIM_MOD_SELECT | VIM_ACTION_LINE_END, VIM_SEND_TAP);
                     vim_delete_os_selection();
                     vim_enter_insert_mode();
                     return;
                 case KC_D:
-                    vim_perform_action_in_mode(VIM_ACTION_LINE_END, VIM_SEND_TAP, VIM_VISUAL_MODE);
+                    vim_perform_action(VIM_MOD_SELECT | VIM_ACTION_LINE_END, VIM_SEND_TAP);
                     vim_delete_os_selection();
                     return;
                 case KC_I:
@@ -382,8 +407,8 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
                     return;
                 case KC_V:
                     vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
+                    vim_perform_action(VIM_ACTION_LINE_END | VIM_MOD_SELECT, VIM_SEND_TAP);
                     vim_enter_visual_mode();
-                    vim_perform_action(VIM_ACTION_LINE_END, VIM_SEND_TAP);
                     return;
                 case KC_Y:
                     vim_yank_line();
@@ -392,8 +417,25 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
         }
     }
 
-    vim_send_type_t send_type = record->event.pressed ? VIM_SEND_PRESS : VIM_SEND_RELEASE;
-    vim_action_t    action    = vim_get_action(keycode, record->event.pressed);
+    vim_action_t    action    = vim_get_action(keycode);
+    vim_send_type_t send_type = VIM_SEND_TAP;
+
+    switch (vim_command_buffer_tail()) {
+        case KC_C:
+            action |= VIM_MOD_CHANGE;
+            break;
+        case KC_D:
+            action |= VIM_MOD_DELETE;
+            break;
+        case KC_Y:
+            action |= VIM_MOD_YANK;
+            break;
+        default:
+            send_type = record->event.pressed ? VIM_SEND_PRESS : VIM_SEND_RELEASE;
+            break;
+    }
+
+    vim_clear_command();
     vim_perform_action(action, send_type);
 }
 
@@ -417,7 +459,7 @@ void process_vim_visual(uint16_t keycode, keyrecord_t *record) {
                 case KC_G:
                     if (vim_command_buffer_tail() == KC_G) {
                         vim_clear_command();
-                        vim_perform_action(VIM_ACTION_DOCUMENT_START, VIM_SEND_TAP);
+                        vim_perform_action(VIM_ACTION_DOCUMENT_START | VIM_MOD_SELECT, VIM_SEND_TAP);
                         return;
                     } else {
                         vim_append_command(KC_G);
@@ -444,8 +486,8 @@ void process_vim_visual(uint16_t keycode, keyrecord_t *record) {
     }
 
     vim_send_type_t send_type = record->event.pressed ? VIM_SEND_PRESS : VIM_SEND_RELEASE;
-    vim_action_t    action    = vim_get_action(keycode, record->event.pressed);
-    vim_perform_action(action, send_type);
+    vim_action_t    action    = vim_get_action(keycode);
+    vim_perform_action(action | VIM_MOD_SELECT, send_type);
 }
 
 bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keycode) {
