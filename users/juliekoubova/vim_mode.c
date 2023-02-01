@@ -21,12 +21,6 @@
 #define VIM_DPRINTF(...) dprintf("[vim] " __VA_ARGS__)
 
 typedef enum {
-    VIM_INSERT_MODE,
-    VIM_COMMAND_MODE,
-    VIM_VISUAL_MODE,
-} vim_mode_t;
-
-typedef enum {
     VIM_ACTION_NONE,
 
     VIM_ACTION_LEFT,
@@ -68,6 +62,8 @@ static uint8_t vim_mods = 0;
 
 static uint8_t vim_command_buffer[VIM_COMMAND_BUFFER_SIZE] = {};
 static uint8_t vim_command_buffer_size                     = 0;
+
+__attribute__((weak)) void vim_mode_changed(vim_mode_t mode) {}
 
 void vim_append_command(uint8_t keycode) {
     if (vim_command_buffer_size == VIM_COMMAND_BUFFER_SIZE) {
@@ -150,6 +146,7 @@ void vim_enter_insert_mode(void) {
     vim_mods = 0;
     vim_clear_command();
     clear_keyboard();
+    vim_mode_changed(vim_mode);
 }
 
 void vim_enter_command_mode(void) {
@@ -165,6 +162,7 @@ void vim_enter_command_mode(void) {
     vim_mode = VIM_COMMAND_MODE;
     vim_mods = get_mods();
     vim_clear_command();
+    vim_mode_changed(vim_mode);
 }
 
 void vim_enter_visual_mode(void) {
@@ -174,6 +172,7 @@ void vim_enter_visual_mode(void) {
     VIM_DPRINT("Entering visual mode\n");
     vim_mode = VIM_VISUAL_MODE;
     vim_clear_command();
+    vim_mode_changed(vim_mode);
 }
 
 void vim_toggle_command_mode(void) {
@@ -490,4 +489,105 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
     }
 
     return true;
+}
+
+bool vim_is_active_key(uint16_t keycode) {
+    if (vim_mode == VIM_INSERT_MODE && !vim_key_pressed) {
+        return false;
+    }
+
+    // keep in sync with vim_get_action
+    if (vim_mods == 0) {
+        switch (keycode) {
+            case KC_B:
+            case KC_E:
+            case KC_H:
+            case KC_J:
+            case KC_K:
+            case KC_L:
+            case KC_P:
+            case KC_U:
+            case KC_W:
+            case KC_X:
+            case KC_0:
+                return true;
+            default:
+                break;
+        }
+    } else if (vim_mods & MOD_MASK_SHIFT) {
+        switch (keycode) {
+            case KC_4: /*$*/
+            case KC_6: /*^*/
+            case KC_B:
+            case KC_E:
+            case KC_G:
+            case KC_P:
+            case KC_W:
+            case KC_X:
+                return true;
+            default:
+                break;
+        }
+    } else if (vim_mods & MOD_MASK_CTRL) {
+        switch (keycode) {
+            case KC_B:
+            case KC_F:
+                return true;
+            default:
+                break;
+        }
+    }
+
+    if (vim_mode == VIM_COMMAND_MODE) {
+        if (vim_mods == 0) {
+            switch (keycode) {
+                case KC_1 ... KC_9:
+                case KC_C:
+                case KC_A:
+                case KC_D:
+                case KC_G:
+                case KC_I:
+                case KC_V:
+                    return true;
+                default:
+                    return false;
+            }
+        } else if (vim_mods & MOD_MASK_SHIFT) {
+            switch (keycode) {
+                case KC_A:
+                case KC_I:
+                case KC_V:
+                case KC_Y:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    } else if (vim_mode == VIM_VISUAL_MODE) {
+        if (vim_mods == 0) {
+            switch (keycode) {
+                case KC_ESC:
+                case KC_C:
+                case KC_D:
+                case KC_X:
+                case KC_G:
+                case KC_Y:
+                    return true;
+                default:
+                    return false;
+            }
+        } else if (vim_mods & MOD_MASK_SHIFT) {
+            switch (keycode) {
+                case KC_C:
+                case KC_D:
+                case KC_X:
+                case KC_Y:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    }
+
+    return false;
 }

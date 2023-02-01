@@ -76,6 +76,9 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
                     rgb_matrix_set_color(index, RGB_TURQUOISE);
                     continue;
                 }
+            } else if (vim_is_active_key(keycode)) {
+                rgb_matrix_set_color(index, RGB_BLUE);
+                continue;
             }
 
             rgb_matrix_set_color(index, RGB_OFF);

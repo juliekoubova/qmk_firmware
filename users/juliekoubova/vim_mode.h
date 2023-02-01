@@ -18,3 +18,15 @@
 #include "quantum.h"
 
 bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keycode);
+
+typedef enum {
+    VIM_INSERT_MODE,
+    VIM_COMMAND_MODE,
+    VIM_VISUAL_MODE,
+} vim_mode_t;
+
+void vim_mode_changed(vim_mode_t mode);
+
+// Returns true for keys that are mapped in the current VIM mode.
+// Useful for indicating the current mode using RGB matrix lights.
+bool vim_is_active_key(uint16_t keycode);
