@@ -25,6 +25,7 @@ typedef enum {
     VIM_VISUAL_MODE,
 } vim_mode_t;
 
+vim_mode_t vim_get_mode(void);
 void vim_mode_changed(vim_mode_t mode);
 
 // Returns true for keys that are mapped in the current VIM mode.

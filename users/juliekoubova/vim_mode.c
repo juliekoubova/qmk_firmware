@@ -638,3 +638,7 @@ bool vim_is_active_key(uint16_t keycode) {
 
     return false;
 }
+
+vim_mode_t vim_get_mode(void) {
+    return vim_mode;
+}
