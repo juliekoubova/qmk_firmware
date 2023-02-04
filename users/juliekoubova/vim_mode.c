@@ -361,7 +361,6 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
         if (vim_mods == 0) {
             switch (keycode) {
                 case KC_1 ... KC_9:
-                case KC_C:
                 case KC_D:
                 case KC_Y:
                     vim_append_command(keycode);
@@ -370,6 +369,16 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
                     vim_perform_action(VIM_ACTION_RIGHT, VIM_SEND_TAP);
                     vim_enter_insert_mode();
                     return;
+                case KC_C:
+                    if (vim_command_buffer_tail() == KC_C) {
+                        vim_clear_command();
+                        vim_delete_line();
+                        vim_enter_insert_mode();
+                        return;
+                    } else {
+                        vim_append_command(KC_C);
+                        return;
+                    }
                 case KC_G:
                     if (vim_command_buffer_tail() == KC_G) {
                         vim_clear_command();
@@ -403,6 +412,10 @@ void process_vim_command(uint16_t keycode, keyrecord_t *record) {
                     return;
                 case KC_I:
                     vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
+                    vim_enter_insert_mode();
+                    return;
+                case KC_S:
+                    vim_delete_line();
                     vim_enter_insert_mode();
                     return;
                 case KC_V:
@@ -603,6 +616,7 @@ bool vim_is_active_key(uint16_t keycode) {
                 case KC_C:
                 case KC_D:
                 case KC_I:
+                case KC_S:
                 case KC_V:
                 case KC_Y:
                     return true;
