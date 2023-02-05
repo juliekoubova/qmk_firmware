@@ -54,6 +54,7 @@ enum {
     VIM_MOD_SELECT       = 0x0400,
     VIM_MOD_YANK         = 0x0800,
     VIM_MOD_INSERT_AFTER = 0x1000,
+    VIM_MOD_VISUAL_AFTER = 0x2000,
 
     VIM_MASK_ACTION = 0x00ff,
     VIM_MASK_MOD    = 0xff00,

@@ -17,8 +17,13 @@
 #include "vim_mode.h"
 #include "print.h"
 
-#define VIM_DPRINT(s) dprint("[vim] " s)
-#define VIM_DPRINTF(...) dprintf("[vim] " __VA_ARGS__)
+#ifdef VIM_DEBUG
+#    define VIM_DPRINT(s) dprint("[vim] " s)
+#    define VIM_DPRINTF(...) dprintf("[vim] " __VA_ARGS__)
+#else
+#    define VIM_DPRINT(s) ((void)0)
+#    define VIM_DPRINT(...) ((void)0)
+#endif
 
 typedef enum {
     VIM_SEND_TAP,
@@ -85,7 +90,7 @@ static const vim_statemachine_t vim_statemachine_command_shift[VIM_STATEMACHINE_
     VIM_ACTION(KC_I, VIM_ACTION_LINE_START | VIM_MOD_INSERT_AFTER),
     VIM_ACTION_REPEATING(KC_P, VIM_ACTION_PASTE),
     VIM_ACTION(KC_S, VIM_ACTION_LINE | VIM_MOD_CHANGE),
-    VIM_ACTION(KC_V, VIM_ACTION_LINE | VIM_MOD_SELECT),
+    VIM_ACTION(KC_V, VIM_ACTION_LINE | VIM_MOD_SELECT | VIM_MOD_VISUAL_AFTER),
     VIM_ACTION_REPEATING(KC_W, VIM_ACTION_WORD_END),
     VIM_ACTION_REPEATING(KC_X, VIM_ACTION_LEFT | VIM_MOD_DELETE),
     VIM_ACTION(KC_Y, VIM_ACTION_LINE | VIM_MOD_YANK),
@@ -124,6 +129,7 @@ static const vim_statemachine_t vim_statemachine_visual[VIM_STATEMACHINE_SIZE] =
 static const vim_statemachine_t vim_statemachine_visual_shift[VIM_STATEMACHINE_SIZE] = {
     VIM_ACTION(KC_C, VIM_ACTION_LINE | VIM_MOD_CHANGE),
     VIM_ACTION(KC_D, VIM_ACTION_LINE | VIM_MOD_DELETE),
+    VIM_ACTION(KC_V, VIM_ACTION_LINE | VIM_MOD_SELECT),
     VIM_ACTION(KC_X, VIM_ACTION_LINE | VIM_MOD_DELETE),
     VIM_ACTION(KC_Y, VIM_ACTION_LINE | VIM_MOD_YANK),
 };
@@ -274,6 +280,11 @@ void vim_perform_action(vim_action_t action, vim_send_type_t type) {
         case VIM_ACTION_VISUAL_MODE:
             vim_enter_visual_mode();
             return;
+        case VIM_ACTION_LINE:
+            vim_send(0, KC_END, VIM_SEND_TAP);
+            type   = VIM_SEND_TAP;
+            action = (action & VIM_MASK_MOD) | VIM_ACTION_LINE_START;
+            break;
         default:
             break;
     }
@@ -353,12 +364,6 @@ void vim_perform_action(vim_action_t action, vim_send_type_t type) {
 
     vim_clear_command();
 
-    if ((action & VIM_MASK_ACTION) == VIM_ACTION_LINE) {
-        type   = VIM_SEND_TAP;
-        action = (action & VIM_MASK_MOD) | VIM_ACTION_LINE_END;
-        vim_send(0, KC_HOME, type);
-    }
-
     if (action & (VIM_MOD_DELETE | VIM_MOD_CHANGE)) {
         if (keycode != KC_NO) {
             // keycode is KC_NO in visual mode, where the object is the visual selection
@@ -381,6 +386,8 @@ void vim_perform_action(vim_action_t action, vim_send_type_t type) {
 
     if (action & VIM_MOD_INSERT_AFTER) {
         vim_enter_insert_mode();
+    } else if (action & VIM_MOD_VISUAL_AFTER) {
+        vim_enter_visual_mode();
     }
 }
 
