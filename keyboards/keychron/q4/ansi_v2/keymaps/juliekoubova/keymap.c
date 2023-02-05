@@ -78,7 +78,7 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
                 }
             } else if (vim_is_active_key(keycode)) {
                 switch (vim_get_mode()) {
-                    case VIM_VISUAL_MODE:
+                    case VIM_MODE_VISUAL:
                         rgb_matrix_set_color(index, RGB_YELLOW);
                         break;
                     default:

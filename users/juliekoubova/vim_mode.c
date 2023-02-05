@@ -14,47 +14,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "print.h"
 #include "vim_mode.h"
+#include "print.h"
 
 #define VIM_DPRINT(s) dprint("[vim] " s)
 #define VIM_DPRINTF(...) dprintf("[vim] " __VA_ARGS__)
-
-enum {
-    VIM_ACTION_NONE,
-
-    VIM_ACTION_LEFT,
-    VIM_ACTION_DOWN,
-    VIM_ACTION_UP,
-    VIM_ACTION_RIGHT,
-
-    VIM_ACTION_DOCUMENT_START,
-    VIM_ACTION_DOCUMENT_END,
-    VIM_ACTION_LINE_START,
-    VIM_ACTION_LINE_END,
-    VIM_ACTION_PAGE_UP,
-    VIM_ACTION_PAGE_DOWN,
-    VIM_ACTION_WORD_START,
-    VIM_ACTION_WORD_END,
-
-    VIM_ACTION_PASTE,
-    VIM_ACTION_UNDO,
-};
-
-enum {
-    VIM_MOD_MOVE   = 0,
-    VIM_MOD_CHANGE = 0x0100,
-    VIM_MOD_DELETE = 0x0200,
-    VIM_MOD_SELECT = 0x0400,
-    VIM_MOD_YANK   = 0x0800,
-};
-
-enum {
-    VIM_MASK_ACTION = 0x00ff,
-    VIM_MASK_MOD    = 0xff00,
-};
-
-typedef uint16_t vim_action_t;
 
 typedef enum {
     VIM_SEND_TAP,
@@ -62,14 +26,117 @@ typedef enum {
     VIM_SEND_RELEASE,
 } vim_send_type_t;
 
+typedef struct {
+    bool         append : 1;
+    bool         repeating : 1;
+    vim_action_t action;
+#ifdef VIM_DEBUG
+    const char *debug;
+#endif
+} vim_statemachine_t;
+
+#define VIM_STATEMACHINE_FIRST KC_A
+#define VIM_STATEMACHINE_LAST KC_ESC
+#define VIM_STATEMACHINE_SIZE (VIM_STATEMACHINE_LAST - VIM_STATEMACHINE_FIRST + 1)
+#define VIM_STATEMACHINE_INDEX(key) ((key) >= VIM_STATEMACHINE_FIRST && (key) <= VIM_STATEMACHINE_LAST ? (key - VIM_STATEMACHINE_FIRST) : -1)
+
+#ifdef VIM_DEBUG
+#    define VIM_ACTION_DEBUG(str) .debug = str
+#else
+#    define VIM_ACTION_DEBUG(str)
+#endif
+
+#define VIM_ACTION(key, a) [VIM_STATEMACHINE_INDEX(key)] = {.action = (a), VIM_ACTION_DEBUG(#key " => " #a)}
+#define VIM_ACTION_REPEATING(key, a) [VIM_STATEMACHINE_INDEX(key)] = {.action = (a), .repeating = true, VIM_ACTION_DEBUG(#key " => " #a " (repeating)")}
+#define VIM_BUFFER_THEN_ACTION(key, a) [VIM_STATEMACHINE_INDEX(key)] = {.action = (a), .append = true, VIM_ACTION_DEBUG(#key " => " #a " (buffer)")}
+
+static const vim_statemachine_t vim_statemachine_command[VIM_STATEMACHINE_SIZE] = {
+    // clang-format off
+    VIM_ACTION(KC_A, VIM_ACTION_RIGHT | VIM_MOD_INSERT_AFTER),
+    VIM_ACTION_REPEATING(KC_B, VIM_ACTION_WORD_START),
+    VIM_BUFFER_THEN_ACTION(KC_C, VIM_ACTION_LINE | VIM_MOD_CHANGE),
+    VIM_BUFFER_THEN_ACTION(KC_D, VIM_ACTION_LINE | VIM_MOD_DELETE),
+    VIM_ACTION_REPEATING(KC_E, VIM_ACTION_WORD_END),
+    VIM_BUFFER_THEN_ACTION(KC_G, VIM_ACTION_DOCUMENT_START),
+    VIM_ACTION_REPEATING(KC_H, VIM_ACTION_LEFT),
+    VIM_ACTION(KC_I, VIM_MOD_INSERT_AFTER),
+    VIM_ACTION_REPEATING(KC_J, VIM_ACTION_DOWN),
+    VIM_ACTION_REPEATING(KC_K, VIM_ACTION_UP),
+    VIM_ACTION_REPEATING(KC_L, VIM_ACTION_RIGHT),
+    VIM_ACTION_REPEATING(KC_P, VIM_ACTION_PASTE),
+    VIM_ACTION(KC_S, VIM_ACTION_RIGHT | VIM_MOD_CHANGE),
+    VIM_ACTION_REPEATING(KC_U, VIM_ACTION_UNDO),
+    VIM_ACTION(KC_V, VIM_ACTION_VISUAL_MODE),
+    VIM_ACTION_REPEATING(KC_W, VIM_ACTION_WORD_END),
+    VIM_ACTION_REPEATING(KC_X, VIM_ACTION_RIGHT | VIM_MOD_DELETE),
+    VIM_BUFFER_THEN_ACTION(KC_Y, VIM_ACTION_LINE | VIM_MOD_YANK),
+    VIM_ACTION(KC_0, VIM_ACTION_LINE_START)
+    // clang-format on
+};
+
+static const vim_statemachine_t vim_statemachine_command_shift[VIM_STATEMACHINE_SIZE] = {
+    // clang-format off
+    VIM_ACTION(KC_A, VIM_ACTION_LINE_END | VIM_MOD_INSERT_AFTER),
+    VIM_ACTION_REPEATING(KC_B, VIM_ACTION_WORD_START),
+    VIM_ACTION(KC_C, VIM_ACTION_LINE_END | VIM_MOD_CHANGE),
+    VIM_ACTION(KC_D, VIM_ACTION_LINE_END | VIM_MOD_DELETE),
+    VIM_ACTION_REPEATING(KC_E, VIM_ACTION_WORD_END),
+    VIM_ACTION_REPEATING(KC_G, VIM_ACTION_DOCUMENT_END),
+    VIM_ACTION(KC_I, VIM_ACTION_LINE_START | VIM_MOD_INSERT_AFTER),
+    VIM_ACTION_REPEATING(KC_P, VIM_ACTION_PASTE),
+    VIM_ACTION(KC_S, VIM_ACTION_LINE | VIM_MOD_CHANGE),
+    VIM_ACTION(KC_V, VIM_ACTION_LINE | VIM_MOD_SELECT),
+    VIM_ACTION_REPEATING(KC_W, VIM_ACTION_WORD_END),
+    VIM_ACTION_REPEATING(KC_X, VIM_ACTION_LEFT | VIM_MOD_DELETE),
+    VIM_ACTION(KC_Y, VIM_ACTION_LINE | VIM_MOD_YANK),
+    VIM_ACTION_REPEATING(KC_4, VIM_ACTION_LINE_END),
+    VIM_ACTION_REPEATING(KC_6, VIM_ACTION_LINE_START),
+    // clang-format on
+};
+
+static const vim_statemachine_t vim_statemachine_command_ctrl[VIM_STATEMACHINE_SIZE] = {
+    VIM_ACTION_REPEATING(KC_B, VIM_ACTION_PAGE_UP),
+    VIM_ACTION_REPEATING(KC_F, VIM_ACTION_PAGE_DOWN),
+};
+
+static const vim_statemachine_t vim_statemachine_visual[VIM_STATEMACHINE_SIZE] = {
+    // clang-format off
+    VIM_ACTION_REPEATING(KC_B, VIM_ACTION_WORD_START | VIM_MOD_SELECT),
+    VIM_ACTION(KC_C, VIM_MOD_CHANGE),
+    VIM_ACTION(KC_D, VIM_MOD_DELETE),
+    VIM_ACTION_REPEATING(KC_E, VIM_ACTION_WORD_END | VIM_MOD_SELECT),
+    VIM_BUFFER_THEN_ACTION(KC_G, VIM_ACTION_DOCUMENT_START | VIM_MOD_SELECT),
+    VIM_ACTION_REPEATING(KC_H, VIM_ACTION_LEFT | VIM_MOD_SELECT),
+    VIM_ACTION_REPEATING(KC_J, VIM_ACTION_DOWN | VIM_MOD_SELECT),
+    VIM_ACTION_REPEATING(KC_K, VIM_ACTION_UP | VIM_MOD_SELECT),
+    VIM_ACTION_REPEATING(KC_L, VIM_ACTION_RIGHT | VIM_MOD_SELECT),
+    VIM_ACTION_REPEATING(KC_P, VIM_ACTION_PASTE),
+    VIM_ACTION(KC_S, VIM_MOD_CHANGE),
+    VIM_ACTION(KC_V, VIM_ACTION_COMMAND_MODE),
+    VIM_ACTION_REPEATING(KC_W, VIM_ACTION_WORD_END | VIM_MOD_SELECT),
+    VIM_ACTION_REPEATING(KC_X, VIM_MOD_DELETE),
+    VIM_ACTION(KC_Y, VIM_MOD_YANK),
+    VIM_ACTION(KC_0, VIM_ACTION_LINE_START | VIM_MOD_SELECT),
+    VIM_ACTION(KC_ESCAPE, VIM_ACTION_COMMAND_MODE),
+    // clang-format on
+};
+
+static const vim_statemachine_t vim_statemachine_visual_shift[VIM_STATEMACHINE_SIZE] = {
+    VIM_ACTION(KC_C, VIM_ACTION_LINE | VIM_MOD_CHANGE),
+    VIM_ACTION(KC_D, VIM_ACTION_LINE | VIM_MOD_DELETE),
+    VIM_ACTION(KC_X, VIM_ACTION_LINE | VIM_MOD_DELETE),
+    VIM_ACTION(KC_Y, VIM_ACTION_LINE | VIM_MOD_YANK),
+};
+
 #ifndef VIM_COMMAND_BUFFER_SIZE
 #    define VIM_COMMAND_BUFFER_SIZE 10
 #endif
 
-static vim_mode_t vim_mode        = VIM_INSERT_MODE;
+static vim_mode_t vim_mode        = VIM_MODE_INSERT;
 static bool       vim_key_pressed = false;
 
-// track modifier state separately. we modify the actual mods so we can't rely on them
+// track modifier state separately. we modify the actual mods so we can't rely
+// on them
 static uint8_t vim_mods = 0;
 
 static uint8_t vim_command_buffer[VIM_COMMAND_BUFFER_SIZE] = {};
@@ -106,8 +173,12 @@ uint8_t vim_command_buffer_tail(void) {
     }
 }
 
-void vim_dprintf_key(const char *function, uint16_t keycode, keyrecord_t *record) {
-    VIM_DPRINTF("%s vim_mods=%x keycode=%x pressed=%d\n", function, vim_mods, keycode, record->event.pressed);
+void vim_dprintf_key(uint16_t keycode, keyrecord_t *record, const vim_statemachine_t *state) {
+#ifdef VIM_DEBUG
+    VIM_DPRINTF("vim_mode=%d vim_mods=%x pressed=%d %s\n", vim_mode, vim_mods, record->event.pressed, state ? state->debug : "NULL");
+#else
+    VIM_DPRINTF("vim_mode=%d vim_mods=%x pressed=%d keycode=%x\n", vim_mode, vim_mods, record->event.pressed, keycode);
+#endif
 }
 
 void vim_send(uint8_t mods, uint16_t keycode, vim_send_type_t type) {
@@ -141,54 +212,48 @@ void vim_cancel_os_selection(void) {
     vim_send(0, KC_LEFT, VIM_SEND_TAP);
 }
 
-void vim_delete_os_selection(void) {
-    vim_send(MOD_LCTL, KC_X, VIM_SEND_TAP);
-}
-
-void vim_yank_os_selection(void) {
-    vim_send(MOD_LCTL, KC_C, VIM_SEND_TAP);
-}
-
 void vim_enter_insert_mode(void) {
-    if (vim_mode == VIM_INSERT_MODE) {
+    if (vim_mode == VIM_MODE_INSERT) {
         return;
     }
     VIM_DPRINT("Entering insert mode\n");
-    vim_mode = VIM_INSERT_MODE;
+    vim_mode = VIM_MODE_INSERT;
     vim_mods = 0;
     vim_clear_command();
-    clear_keyboard();
+    clear_keyboard_but_mods();
     vim_mode_changed(vim_mode);
 }
 
 void vim_enter_command_mode(void) {
-    if (vim_mode == VIM_COMMAND_MODE) {
+    if (vim_mode == VIM_MODE_COMMAND) {
         return;
     }
 
     VIM_DPRINTF("Entering command mode vim_mods=%x\n", vim_mods);
 
-    if (vim_mode == VIM_VISUAL_MODE) {
+    if (vim_mode == VIM_MODE_VISUAL) {
         vim_cancel_os_selection();
     }
-    vim_mode = VIM_COMMAND_MODE;
+    vim_mode = VIM_MODE_COMMAND;
     vim_mods = get_mods();
     vim_clear_command();
+    clear_keyboard_but_mods();
     vim_mode_changed(vim_mode);
 }
 
 void vim_enter_visual_mode(void) {
-    if (vim_mode == VIM_VISUAL_MODE) {
+    if (vim_mode == VIM_MODE_VISUAL) {
         return;
     }
     VIM_DPRINT("Entering visual mode\n");
-    vim_mode = VIM_VISUAL_MODE;
+    vim_mode = VIM_MODE_VISUAL;
     vim_clear_command();
+    clear_keyboard_but_mods();
     vim_mode_changed(vim_mode);
 }
 
 void vim_toggle_command_mode(void) {
-    if (vim_mode == VIM_INSERT_MODE) {
+    if (vim_mode == VIM_MODE_INSERT) {
         vim_enter_command_mode();
     } else {
         vim_enter_insert_mode();
@@ -196,13 +261,18 @@ void vim_toggle_command_mode(void) {
 }
 
 void vim_perform_action(vim_action_t action, vim_send_type_t type) {
-    // these are repeating, so we send press or release based on passed type
     switch (action & VIM_MASK_ACTION) {
         case VIM_ACTION_PASTE:
             vim_send(MOD_LCTL, KC_V, type);
             return;
         case VIM_ACTION_UNDO:
             vim_send(MOD_LCTL, KC_Z, type);
+            return;
+        case VIM_ACTION_COMMAND_MODE:
+            vim_enter_command_mode();
+            return;
+        case VIM_ACTION_VISUAL_MODE:
+            vim_enter_visual_mode();
             return;
         default:
             break;
@@ -264,243 +334,111 @@ void vim_perform_action(vim_action_t action, vim_send_type_t type) {
         }
     }
 
+    switch (vim_command_buffer_tail()) {
+        case KC_C:
+            action |= VIM_MOD_CHANGE;
+            type = VIM_SEND_TAP;
+            break;
+        case KC_D:
+            action |= VIM_MOD_DELETE;
+            type = VIM_SEND_TAP;
+            break;
+        case KC_Y:
+            action |= VIM_MOD_YANK;
+            type = VIM_SEND_TAP;
+            break;
+        default:
+            break;
+    }
+
+    vim_clear_command();
+
+    if ((action & VIM_MASK_ACTION) == VIM_ACTION_LINE) {
+        type   = VIM_SEND_TAP;
+        action = (action & VIM_MASK_MOD) | VIM_ACTION_LINE_END;
+        vim_send(0, KC_HOME, type);
+    }
+
     if (action & (VIM_MOD_DELETE | VIM_MOD_CHANGE)) {
-        // send shifted action as a tap
-        vim_send(mods | MOD_LSFT, keycode, VIM_SEND_TAP);
-        vim_delete_os_selection();
+        if (keycode != KC_NO) {
+            // keycode is KC_NO in visual mode, where the object is the visual selection
+            // send shifted action as a tap
+            vim_send(mods | MOD_LSFT, keycode, VIM_SEND_TAP);
+        }
+        vim_send(MOD_LCTL, KC_X, VIM_SEND_TAP);
         if (action & VIM_MOD_CHANGE) {
             vim_enter_insert_mode();
+            return;
         }
     } else if (action & VIM_MOD_YANK) {
         vim_send(mods | MOD_LSFT, keycode, VIM_SEND_TAP);
-        vim_yank_os_selection();
+        vim_send(MOD_LCTL, KC_C, VIM_SEND_TAP);
     } else if (action & VIM_MOD_SELECT) {
         vim_send(mods | MOD_LSFT, keycode, type);
     } else {
         vim_send(mods, keycode, type);
     }
-}
 
-vim_action_t vim_get_action(uint16_t keycode) {
-    if (vim_mods == 0) {
-        switch (keycode) {
-            case KC_B:
-                return VIM_ACTION_WORD_START;
-            case KC_E:
-            case KC_W:
-                return VIM_ACTION_WORD_END;
-            case KC_H:
-                return VIM_ACTION_LEFT;
-            case KC_J:
-                return VIM_ACTION_DOWN;
-            case KC_K:
-                return VIM_ACTION_UP;
-            case KC_L:
-                return VIM_ACTION_RIGHT;
-            case KC_P:
-                return VIM_ACTION_PASTE;
-            case KC_U:
-                return VIM_ACTION_UNDO;
-            case KC_X:
-                return VIM_ACTION_RIGHT | VIM_MOD_DELETE;
-            case KC_0:
-                return VIM_ACTION_LINE_START;
-            default:
-                return VIM_ACTION_NONE;
-        }
-    } else if (vim_mods & MOD_MASK_SHIFT) {
-        switch (keycode) {
-            case KC_4: /*$*/
-                return VIM_ACTION_LINE_END;
-            case KC_6: /*^*/
-                return VIM_ACTION_LINE_START;
-            case KC_B:
-                return VIM_ACTION_WORD_START;
-            case KC_E:
-            case KC_W:
-                return VIM_ACTION_WORD_END;
-            case KC_G:
-                return VIM_ACTION_DOCUMENT_END;
-            case KC_P:
-                return VIM_ACTION_PASTE;
-            case KC_X:
-                return VIM_ACTION_LEFT | VIM_MOD_DELETE;
-            default:
-                return VIM_ACTION_NONE;
-        }
-    } else if (vim_mods & MOD_MASK_CTRL) {
-        switch (keycode) {
-            case KC_B:
-                return VIM_ACTION_PAGE_UP;
-            case KC_F:
-                return VIM_ACTION_PAGE_DOWN;
-            default:
-                return VIM_ACTION_NONE;
-        }
-    } else {
-        return VIM_ACTION_NONE;
+    if (action & VIM_MOD_INSERT_AFTER) {
+        vim_enter_insert_mode();
     }
 }
 
-void vim_delete_line(void) {
-    vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
-    vim_perform_action(VIM_MOD_SELECT | VIM_ACTION_LINE_END, VIM_SEND_TAP);
-    vim_delete_os_selection();
-}
+const vim_statemachine_t *vim_lookup_statemachine(uint16_t keycode) {
+    if (keycode < VIM_STATEMACHINE_FIRST || keycode > VIM_STATEMACHINE_LAST) {
+        return NULL;
+    }
 
-void vim_yank_line(void) {
-    vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
-    vim_perform_action(VIM_MOD_SELECT | VIM_ACTION_LINE_END, VIM_SEND_TAP);
-    vim_yank_os_selection();
-    vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
-}
+    uint8_t index = VIM_STATEMACHINE_INDEX(keycode);
+    bool    ctrl  = (vim_mods == MOD_BIT(KC_LCTL)) || (vim_mods == MOD_BIT(KC_RCTL));
+    bool    shift = (vim_mods == MOD_BIT(KC_LSFT)) || (vim_mods == MOD_BIT(KC_RSFT));
 
-void process_vim_command(uint16_t keycode, keyrecord_t *record) {
-    vim_dprintf_key(__func__, keycode, record);
-    if (record->event.pressed) {
+    if (vim_mode == VIM_MODE_COMMAND || vim_key_pressed) {
+        if (ctrl) {
+            return &vim_statemachine_command_ctrl[index];
+        } else if (shift) {
+            return &vim_statemachine_command_shift[index];
+        } else if (vim_mods == 0) {
+            return &vim_statemachine_command[index];
+        }
+    } else if (vim_mode == VIM_MODE_VISUAL) {
         if (vim_mods == 0) {
-            switch (keycode) {
-                case KC_1 ... KC_9:
-                case KC_D:
-                case KC_Y:
-                    vim_append_command(keycode);
-                    return;
-                case KC_A:
-                    vim_perform_action(VIM_ACTION_RIGHT, VIM_SEND_TAP);
-                    vim_enter_insert_mode();
-                    return;
-                case KC_C:
-                    if (vim_command_buffer_tail() == KC_C) {
-                        vim_clear_command();
-                        vim_delete_line();
-                        vim_enter_insert_mode();
-                        return;
-                    } else {
-                        vim_append_command(KC_C);
-                        return;
-                    }
-                case KC_G:
-                    if (vim_command_buffer_tail() == KC_G) {
-                        vim_clear_command();
-                        vim_perform_action(VIM_ACTION_DOCUMENT_START, VIM_SEND_TAP);
-                        return;
-                    } else {
-                        vim_append_command(KC_G);
-                        return;
-                    }
-                case KC_I:
-                    vim_enter_insert_mode();
-                    return;
-                case KC_V:
-                    vim_enter_visual_mode();
-                    return;
-            }
-        } else if (vim_mods & MOD_MASK_SHIFT) {
-            switch (keycode) {
-                case KC_A:
-                    vim_perform_action(VIM_ACTION_LINE_END, VIM_SEND_TAP);
-                    vim_enter_insert_mode();
-                    return;
-                case KC_C:
-                    vim_perform_action(VIM_MOD_SELECT | VIM_ACTION_LINE_END, VIM_SEND_TAP);
-                    vim_delete_os_selection();
-                    vim_enter_insert_mode();
-                    return;
-                case KC_D:
-                    vim_perform_action(VIM_MOD_SELECT | VIM_ACTION_LINE_END, VIM_SEND_TAP);
-                    vim_delete_os_selection();
-                    return;
-                case KC_I:
-                    vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
-                    vim_enter_insert_mode();
-                    return;
-                case KC_S:
-                    vim_delete_line();
-                    vim_enter_insert_mode();
-                    return;
-                case KC_V:
-                    vim_perform_action(VIM_ACTION_LINE_START, VIM_SEND_TAP);
-                    vim_perform_action(VIM_ACTION_LINE_END | VIM_MOD_SELECT, VIM_SEND_TAP);
-                    vim_enter_visual_mode();
-                    return;
-                case KC_Y:
-                    vim_yank_line();
-                    return;
-            }
+            return &vim_statemachine_visual[index];
+        } else if (shift) {
+            return &vim_statemachine_visual_shift[index];
         }
     }
 
-    vim_action_t    action    = vim_get_action(keycode);
-    vim_send_type_t send_type = VIM_SEND_TAP;
-
-    switch (vim_command_buffer_tail()) {
-        case KC_C:
-            action |= VIM_MOD_CHANGE;
-            break;
-        case KC_D:
-            action |= VIM_MOD_DELETE;
-            break;
-        case KC_Y:
-            action |= VIM_MOD_YANK;
-            break;
-        default:
-            send_type = record->event.pressed ? VIM_SEND_PRESS : VIM_SEND_RELEASE;
-            break;
-    }
-
-    vim_clear_command();
-    vim_perform_action(action, send_type);
+    return NULL;
 }
 
-void process_vim_visual(uint16_t keycode, keyrecord_t *record) {
-    vim_dprintf_key(__func__, keycode, record);
+void vim_process_command(uint16_t keycode, keyrecord_t *record) {
+    const vim_statemachine_t *state = vim_lookup_statemachine(keycode);
+    vim_dprintf_key(keycode, record, state);
+    if (state == NULL) {
+        VIM_DPRINT("Not a statemachine key.");
+        return;
+    }
 
     if (record->event.pressed) {
-        if (vim_mods == 0) {
-            switch (keycode) {
-                case KC_ESC:
-                    vim_enter_command_mode();
-                    return;
-                case KC_C:
-                    vim_delete_os_selection();
-                    vim_enter_insert_mode();
-                    return;
-                case KC_D:
-                case KC_X:
-                    vim_delete_os_selection();
-                    return;
-                case KC_G:
-                    if (vim_command_buffer_tail() == KC_G) {
-                        vim_clear_command();
-                        vim_perform_action(VIM_ACTION_DOCUMENT_START | VIM_MOD_SELECT, VIM_SEND_TAP);
-                        return;
-                    } else {
-                        vim_append_command(KC_G);
-                        return;
-                    }
-                case KC_Y:
-                    vim_yank_os_selection();
-                    return;
-            }
-        } else if (vim_mods & MOD_MASK_SHIFT) {
-            switch (keycode) {
-                case KC_C:
-                    vim_delete_line();
-                    vim_enter_insert_mode();
-                case KC_D:
-                case KC_X:
-                    vim_delete_line();
-                    return;
-                case KC_Y:
-                    vim_yank_line();
-                    return;
-            }
+        if (state->append && state->action && vim_command_buffer_tail() == keycode) {
+            vim_perform_action(state->action, VIM_SEND_TAP);
+        } else if (state->append) {
+            vim_append_command(keycode);
+        } else if (state->repeating) {
+            vim_perform_action(state->action, VIM_SEND_PRESS);
+        } else {
+            vim_perform_action(state->action, VIM_SEND_TAP);
         }
+    } else if (state->repeating) {
+        vim_perform_action(state->action, VIM_SEND_RELEASE);
     }
+}
 
-    vim_send_type_t send_type = record->event.pressed ? VIM_SEND_PRESS : VIM_SEND_RELEASE;
-    vim_action_t    action    = vim_get_action(keycode);
-    vim_perform_action(action | VIM_MOD_SELECT, send_type);
+void vim_set_mod(uint16_t keycode, bool pressed) {
+    uint8_t bit = MOD_BIT(keycode);
+    vim_mods    = pressed ? (vim_mods | bit) : (vim_mods & ~bit);
+    VIM_DPRINTF("vim_mods = %x\n", vim_mods);
 }
 
 bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keycode) {
@@ -517,6 +455,8 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
             tapped          = true;
             timer           = record->event.time + GET_TAPPING_TERM(keycode, record);
             vim_key_pressed = true;
+            vim_mods        = get_mods();
+            clear_keyboard_but_mods();
             return false;
         } else {
             tapped = false;
@@ -524,24 +464,16 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
     } else if (keycode == vim_keycode) {
         VIM_DPRINT("Vim key released\n");
         vim_key_pressed = false;
+        clear_keyboard_but_mods();
         return false;
     }
 
-    if (vim_mode != VIM_INSERT_MODE) {
+    if (vim_key_pressed || vim_mode != VIM_MODE_INSERT) {
         if (IS_MODIFIERS_KEYCODE(keycode)) {
-            if (record->event.pressed) {
-                vim_mods |= MOD_BIT(keycode);
-            } else {
-                vim_mods &= ~MOD_BIT(keycode);
-            }
+            vim_set_mod(keycode, record->event.pressed);
+        } else {
+            vim_process_command(keycode, record);
         }
-    }
-
-    if (vim_mode == VIM_COMMAND_MODE || vim_key_pressed) {
-        process_vim_command(keycode, record);
-        return false;
-    } else if (vim_mode == VIM_VISUAL_MODE) {
-        process_vim_visual(keycode, record);
         return false;
     }
 
@@ -549,108 +481,12 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
 }
 
 bool vim_is_active_key(uint16_t keycode) {
-    if (vim_mode == VIM_INSERT_MODE && !vim_key_pressed) {
+    if (vim_mode == VIM_MODE_INSERT && !vim_key_pressed) {
         return false;
     }
 
-    // keep in sync with vim_get_action
-    if (vim_mods == 0) {
-        switch (keycode) {
-            case KC_B:
-            case KC_E:
-            case KC_H:
-            case KC_J:
-            case KC_K:
-            case KC_L:
-            case KC_P:
-            case KC_U:
-            case KC_W:
-            case KC_X:
-            case KC_0:
-                return true;
-            default:
-                break;
-        }
-    } else if (vim_mods & MOD_MASK_SHIFT) {
-        switch (keycode) {
-            case KC_4: /*$*/
-            case KC_6: /*^*/
-            case KC_B:
-            case KC_E:
-            case KC_G:
-            case KC_P:
-            case KC_W:
-            case KC_X:
-                return true;
-            default:
-                break;
-        }
-    } else if (vim_mods & MOD_MASK_CTRL) {
-        switch (keycode) {
-            case KC_B:
-            case KC_F:
-                return true;
-            default:
-                break;
-        }
-    }
-
-    if (vim_mode == VIM_COMMAND_MODE) {
-        if (vim_mods == 0) {
-            switch (keycode) {
-                case KC_1 ... KC_9:
-                case KC_A:
-                case KC_C:
-                case KC_D:
-                case KC_G:
-                case KC_I:
-                case KC_V:
-                case KC_Y:
-                    return true;
-                default:
-                    return false;
-            }
-        } else if (vim_mods & MOD_MASK_SHIFT) {
-            switch (keycode) {
-                case KC_A:
-                case KC_C:
-                case KC_D:
-                case KC_I:
-                case KC_S:
-                case KC_V:
-                case KC_Y:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-    } else if (vim_mode == VIM_VISUAL_MODE) {
-        if (vim_mods == 0) {
-            switch (keycode) {
-                case KC_ESC:
-                case KC_C:
-                case KC_D:
-                case KC_X:
-                case KC_G:
-                case KC_Y:
-                    return true;
-                default:
-                    return false;
-            }
-        } else if (vim_mods & MOD_MASK_SHIFT) {
-            switch (keycode) {
-                case KC_C:
-                case KC_D:
-                case KC_X:
-                case KC_Y:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-    }
-
-    return false;
+    const vim_statemachine_t *state = vim_lookup_statemachine(keycode);
+    return state != NULL && state->action != VIM_ACTION_NONE;
 }
 
 vim_mode_t vim_get_mode(void) {
