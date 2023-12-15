@@ -22,7 +22,7 @@
 #    define VIM_DPRINTF(...) dprintf("[vim] " __VA_ARGS__)
 #else
 #    define VIM_DPRINT(s) ((void)0)
-#    define VIM_DPRINT(...) ((void)0)
+#    define VIM_DPRINTF(...) ((void)0)
 #endif
 
 typedef enum {
