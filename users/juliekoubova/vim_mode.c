@@ -476,7 +476,7 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
     }
 
     if (vim_key_pressed || vim_mode != VIM_MODE_INSERT) {
-        if (IS_MODIFIERS_KEYCODE(keycode)) {
+        if (IS_MODIFIER_KEYCODE(keycode)) {
             vim_set_mod(keycode, record->event.pressed);
         } else {
             vim_process_command(keycode, record);
