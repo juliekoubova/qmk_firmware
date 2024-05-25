@@ -32,6 +32,8 @@ typedef enum {
     VIM_SEND_RELEASE,
 } vim_send_type_t;
 
+typedef enum { VIM_KEY_NONE, VIM_KEY_TAP, VIM_KEY_HELD } vim_key_state_t;
+
 typedef struct {
     bool         append : 1;
     bool         repeating : 1;
@@ -128,23 +130,22 @@ static const vim_statemachine_t vim_statemachine_visual[VIM_STATEMACHINE_SIZE] =
 };
 
 static const vim_statemachine_t vim_statemachine_visual_shift[VIM_STATEMACHINE_SIZE] = {
+    // clang-format off
     VIM_ACTION(KC_C, VIM_ACTION_LINE | VIM_MOD_CHANGE),
     VIM_ACTION(KC_D, VIM_ACTION_LINE | VIM_MOD_DELETE),
     VIM_ACTION(KC_V, VIM_ACTION_LINE | VIM_MOD_SELECT),
     VIM_ACTION(KC_X, VIM_ACTION_LINE | VIM_MOD_DELETE),
     VIM_ACTION(KC_Y, VIM_ACTION_LINE | VIM_MOD_YANK),
+    // clang-format on
 };
 
 #ifndef VIM_COMMAND_BUFFER_SIZE
 #    define VIM_COMMAND_BUFFER_SIZE 10
 #endif
 
-static vim_mode_t vim_mode        = VIM_MODE_INSERT;
-static bool       vim_key_pressed = false;
-
-// track modifier state separately. we modify the actual mods so we can't rely
-// on them
-static uint8_t vim_mods = 0;
+static vim_mode_t      vim_mode      = VIM_MODE_INSERT;
+static vim_key_state_t vim_key_state = VIM_KEY_NONE;
+static uint8_t         vim_mods      = 0; // we modify the actual mods so we can't rely on them
 
 static uint8_t vim_command_buffer[VIM_COMMAND_BUFFER_SIZE] = {};
 static uint8_t vim_command_buffer_size                     = 0;
@@ -248,6 +249,14 @@ void vim_enter_command_mode(void) {
     vim_mode_changed(vim_mode);
 }
 
+void vim_toggle_command_mode(void) {
+    if (vim_mode == VIM_MODE_INSERT) {
+        vim_enter_command_mode();
+    } else {
+        vim_enter_insert_mode();
+    }
+}
+
 void vim_enter_visual_mode(void) {
     if (vim_mode == VIM_MODE_VISUAL) {
         return;
@@ -257,14 +266,6 @@ void vim_enter_visual_mode(void) {
     vim_clear_command();
     clear_keyboard_but_mods();
     vim_mode_changed(vim_mode);
-}
-
-void vim_toggle_command_mode(void) {
-    if (vim_mode == VIM_MODE_INSERT) {
-        vim_enter_command_mode();
-    } else {
-        vim_enter_insert_mode();
-    }
 }
 
 void vim_perform_action(vim_action_t action, vim_send_type_t type) {
@@ -398,10 +399,10 @@ const vim_statemachine_t *vim_lookup_statemachine(uint16_t keycode) {
     }
 
     uint8_t index = VIM_STATEMACHINE_INDEX(keycode);
-    bool    ctrl  = (vim_mods == MOD_BIT(KC_LCTL)) || (vim_mods == MOD_BIT(KC_RCTL));
-    bool    shift = (vim_mods == MOD_BIT(KC_LSFT)) || (vim_mods == MOD_BIT(KC_RSFT));
+    bool    ctrl  = (vim_mods & MOD_BIT(KC_LCTL)) || (vim_mods & MOD_BIT(KC_RCTL));
+    bool    shift = (vim_mods & MOD_BIT(KC_LSFT)) || (vim_mods & MOD_BIT(KC_RSFT));
 
-    if (vim_mode == VIM_MODE_COMMAND || vim_key_pressed) {
+    if (vim_mode == VIM_MODE_COMMAND) {
         if (ctrl) {
             return &vim_statemachine_command_ctrl[index];
         } else if (shift) {
@@ -449,37 +450,35 @@ void vim_set_mod(uint16_t keycode, bool pressed) {
     VIM_DPRINTF("vim_mods = %x\n", vim_mods);
 }
 
-bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keycode) {
-    if (record->event.pressed) {
-        static bool     tapped = false;
-        static uint16_t timer  = 0;
-        if (keycode == vim_keycode) {
-            if (tapped && !timer_expired(record->event.time, timer)) {
-                // double-tapped the vim key, toggle command mode
-                vim_toggle_command_mode();
-                return false;
-            }
-            VIM_DPRINT("Vim key pressed\n");
-            tapped          = true;
-            timer           = record->event.time + GET_TAPPING_TERM(keycode, record);
-            vim_key_pressed = true;
-            vim_mods        = get_mods();
-            clear_keyboard_but_mods();
-            return false;
-        } else {
-            tapped = false;
-        }
-    } else if (keycode == vim_keycode) {
+void vim_process_vim_key(bool pressed) {
+    if (pressed) {
+        VIM_DPRINT("Vim key pressed\n");
+        vim_key_state = VIM_KEY_TAP;
+        vim_enter_command_mode();
+    } else {
         VIM_DPRINT("Vim key released\n");
-        vim_key_pressed = false;
-        clear_keyboard_but_mods();
+        vim_key_state_t prev_vim_key_state = vim_key_state;
+        vim_key_state                      = VIM_KEY_NONE;
+
+        if (prev_vim_key_state == VIM_KEY_TAP) {
+            vim_toggle_command_mode();
+        } else {
+            vim_enter_insert_mode();
+        }
+    }
+}
+
+bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keycode) {
+    if (keycode == vim_keycode) {
+        vim_process_vim_key(record->event.pressed);
         return false;
     }
 
-    if (vim_key_pressed || vim_mode != VIM_MODE_INSERT) {
+    if (vim_mode != VIM_MODE_INSERT) {
         if (IS_MODIFIER_KEYCODE(keycode)) {
             vim_set_mod(keycode, record->event.pressed);
         } else {
+            vim_key_state = VIM_KEY_HELD;
             vim_process_command(keycode, record);
         }
         return false;
@@ -489,7 +488,7 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
 }
 
 bool vim_is_active_key(uint16_t keycode) {
-    if (vim_mode == VIM_MODE_INSERT && !vim_key_pressed) {
+    if (vim_mode == VIM_MODE_INSERT) {
         return false;
     }
 
