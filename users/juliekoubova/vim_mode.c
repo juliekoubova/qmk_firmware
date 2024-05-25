@@ -154,22 +154,22 @@ __attribute__((weak)) void vim_mode_changed(vim_mode_t mode) {}
 
 void vim_append_command(uint8_t keycode) {
     if (vim_command_buffer_size == VIM_COMMAND_BUFFER_SIZE) {
-        print("[vim] Ran out of command buffer space.\n");
+        VIM_DPRINT("[vim] Ran out of command buffer space.\n");
         vim_command_buffer_size = 0;
         return;
     }
     vim_command_buffer[vim_command_buffer_size] = keycode;
     vim_command_buffer_size++;
 
-    dprint("[vim] command buffer: ");
+    VIM_DPRINTF("[vim] command buffer: ");
     for (uint8_t i = 0; i < vim_command_buffer_size; i++) {
-        dprintf("%d ", vim_command_buffer[i]);
+        VIM_DPRINTF("%d ", vim_command_buffer[i]);
     }
-    dprint("\n");
+    VIM_DPRINTF("\n");
 }
 
 void vim_clear_command(void) {
-    VIM_DPRINT("Cleared command buffer.\n");
+    VIM_DPRINTF("Cleared command buffer.\n");
     vim_command_buffer_size = 0;
 }
 
@@ -452,16 +452,22 @@ void vim_set_mod(uint16_t keycode, bool pressed) {
 
 void vim_process_vim_key(bool pressed) {
     if (pressed) {
-        VIM_DPRINT("Vim key pressed\n");
-        vim_key_state = VIM_KEY_TAP;
-        vim_enter_command_mode();
+        if (vim_mode == VIM_MODE_INSERT) {
+            VIM_DPRINT("Vim key pressed in insert mode\n");
+            vim_key_state = VIM_KEY_TAP;
+            vim_enter_command_mode();
+        } else {
+            VIM_DPRINT("Vim key pressed in non-insert mode\n");
+            vim_key_state = VIM_KEY_NONE;
+            vim_enter_insert_mode();
+        }
     } else {
-        VIM_DPRINT("Vim key released\n");
+        VIM_DPRINTF("Vim key released, vim_key_state=%d\n", vim_key_state);
         vim_key_state_t prev_vim_key_state = vim_key_state;
         vim_key_state                      = VIM_KEY_NONE;
 
         if (prev_vim_key_state == VIM_KEY_TAP) {
-            vim_toggle_command_mode();
+            vim_enter_command_mode();
         } else {
             vim_enter_insert_mode();
         }
@@ -479,6 +485,7 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
             vim_set_mod(keycode, record->event.pressed);
         } else {
             vim_key_state = VIM_KEY_HELD;
+            VIM_DPRINTF("vim_key_state=%d\n", vim_key_state);
             vim_process_command(keycode, record);
         }
         return false;
