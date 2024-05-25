@@ -262,7 +262,9 @@ void vim_enter_visual_mode(void) {
         return;
     }
     VIM_DPRINT("Entering visual mode\n");
-    vim_mode = VIM_MODE_VISUAL;
+    vim_mode      = VIM_MODE_VISUAL;
+    vim_key_state = VIM_KEY_NONE; // don't return to insert after vim key is
+                                  // released
     vim_clear_command();
     clear_keyboard_but_mods();
     vim_mode_changed(vim_mode);
@@ -466,10 +468,17 @@ void vim_process_vim_key(bool pressed) {
         vim_key_state_t prev_vim_key_state = vim_key_state;
         vim_key_state                      = VIM_KEY_NONE;
 
-        if (prev_vim_key_state == VIM_KEY_TAP) {
-            vim_enter_command_mode();
-        } else {
-            vim_enter_insert_mode();
+        switch (prev_vim_key_state) {
+            case VIM_KEY_NONE:
+                // set when visual mode is entered from a vi key tap.
+                // in that case, we want to stay in the selected mode
+                break;
+            case VIM_KEY_TAP:
+                vim_enter_command_mode();
+                break;
+            case VIM_KEY_HELD:
+                vim_enter_insert_mode();
+                break;
         }
     }
 }
@@ -483,11 +492,15 @@ bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keyc
     if (vim_mode != VIM_MODE_INSERT) {
         if (IS_MODIFIER_KEYCODE(keycode)) {
             vim_set_mod(keycode, record->event.pressed);
-        } else {
-            vim_key_state = VIM_KEY_HELD;
-            VIM_DPRINTF("vim_key_state=%d\n", vim_key_state);
-            vim_process_command(keycode, record);
+            return false;
         }
+
+        if (record->event.pressed) {
+            vim_key_state = VIM_KEY_HELD;
+        }
+
+        VIM_DPRINTF("vim_key_state=%d\n", vim_key_state);
+        vim_process_command(keycode, record);
         return false;
     }
 
