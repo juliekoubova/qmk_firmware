@@ -15,7 +15,8 @@
  */
 
 #pragma once
-#include "quantum.h"
+#include <stdint.h>
+#include <quantum/quantum.h>
 
 bool process_record_vim(uint16_t keycode, keyrecord_t *record, uint16_t vim_keycode);
 

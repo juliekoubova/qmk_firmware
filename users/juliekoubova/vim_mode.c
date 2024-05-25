@@ -16,6 +16,7 @@
 
 #include "vim_mode.h"
 #include "print.h"
+#include <stdbool.h>
 
 #ifdef VIM_DEBUG
 #    define VIM_DPRINT(s) dprint("[vim] " s)
