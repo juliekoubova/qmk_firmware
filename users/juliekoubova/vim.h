@@ -15,8 +15,10 @@
  */
 
 #pragma once
+#include <stdint.h>
+#include "quantum/quantum.h"
 #include "vim_mode.h"
-#include "vim_statemachine.h"
-#include "vim_send.h"
 
-void vim_perform_action(vim_action_t, vim_send_type_t);
+bool process_record_vim(uint16_t keycode, const keyrecord_t *record, uint16_t vim_keycode);
+bool vim_is_active_key(uint16_t keycode);
+
