@@ -14,25 +14,30 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "vim_command_buffer.h"
 #include "debug.h"
 #include "vim_mode.h"
-#include "statemachine.h"
+#include "pending.h"
 #include "perform_action.h"
-#include "print.h"
+#include "statemachine.h"
 #include <stdbool.h>
 
 void vim_process_command(uint16_t keycode, const keyrecord_t *record) {
     const vim_statemachine_t *state = vim_lookup_statemachine(keycode);
     vim_dprintf_state(state);
-    if (state == NULL) {
+    if (!state) {
         return;
     }
     if (record->event.pressed) {
-        if (state->append && state->action && vim_command_buffer_tail() == keycode) {
+        if (state->append_if_pending) {
+            if (vim_has_pending()) {
+                vim_append_pending(keycode);
+            } else if (state->action) {
+                vim_perform_action(state->action, VIM_SEND_TAP);
+            }
+        } else if (state->append && state->action && vim_get_pending().keycode == keycode) {
             vim_perform_action(state->action, VIM_SEND_TAP);
         } else if (state->append) {
-            vim_append_command(keycode);
+            vim_append_pending(keycode);
         } else if (state->repeating) {
             vim_perform_action(state->action, VIM_SEND_PRESS);
         } else {

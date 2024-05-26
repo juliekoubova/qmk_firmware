@@ -1,8 +1,8 @@
 #include "debug.h"
+#include "pending.h"
+#include "quantum/quantum.h"
 #include "vim_mode.h"
-#include "vim_command_buffer.h"
 #include "vim_send.h"
-#include <quantum/quantum.h>
 
 static vim_mode_t      vim_mode      = VIM_MODE_INSERT;
 static vim_key_state_t vim_key_state = VIM_KEY_NONE;
@@ -25,7 +25,7 @@ void vim_enter_insert_mode(void) {
     VIM_DPRINT("Entering insert mode\n");
     vim_mode = VIM_MODE_INSERT;
     vim_mods = 0;
-    vim_clear_command();
+    vim_clear_pending();
     clear_keyboard_but_mods();
     vim_mode_changed(vim_mode);
 }
@@ -42,7 +42,7 @@ void vim_enter_command_mode(void) {
     }
     vim_mode = VIM_MODE_COMMAND;
     vim_mods = get_mods();
-    vim_clear_command();
+    vim_clear_pending();
     clear_keyboard_but_mods();
     vim_mode_changed(vim_mode);
 }
@@ -56,7 +56,7 @@ void vim_enter_visual_mode(void) {
 
     // don't return to insert after vim key is released
     vim_set_vim_key_state(VIM_KEY_NONE);
-    vim_clear_command();
+    vim_clear_pending();
 
     clear_keyboard_but_mods();
     vim_mode_changed(vim_mode);
@@ -83,11 +83,5 @@ vim_key_state_t vim_set_vim_key_state(vim_key_state_t key_state) {
 }
 
 void vim_dprintf_key(const char *prefix, uint16_t keycode, const keyrecord_t *record) {
-    VIM_DPRINTF("%s %s keycode=%x: mode=%d mods=%x vim_key=%x\n",
-            prefix,
-            record->event.pressed ? "pressed" : "released",
-            keycode,
-            vim_mode,
-            vim_mods,
-            vim_key_state);
+    VIM_DPRINTF("%s %s keycode=%x: mode=%d mods=%x vim_key=%x\n", prefix, record->event.pressed ? "pressed" : "released", keycode, vim_mode, vim_mods, vim_key_state);
 }

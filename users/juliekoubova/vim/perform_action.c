@@ -14,12 +14,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdbool.h>
-#include "vim_command_buffer.h"
-#include "quantum/keycode.h"
-#include "perform_action.h"
 #include "debug.h"
+#include "pending.h"
+#include "perform_action.h"
+#include "quantum/keycode.h"
 #include "statemachine.h"
+#include "vim_send.h"
+#include <stdbool.h>
 
 static uint8_t command_mod      = MOD_LCTL;
 static uint8_t document_nav_mod = MOD_LCTL;
@@ -32,13 +33,26 @@ void vim_set_apple(bool apple) {
     word_nav_mod     = apple ? MOD_LALT : MOD_LCTL;
 }
 
+static void vim_send_repeated(int8_t repeat, uint8_t mods, uint16_t keycode, vim_send_type_t type) {
+    if (type == VIM_SEND_RELEASE) {
+        vim_send(mods, keycode, type);
+        return;
+    }
+    while (repeat > 1) {
+        vim_send(mods, keycode, VIM_SEND_TAP);
+        repeat--;
+    }
+    vim_send(mods, keycode, type);
+}
+
 void vim_perform_action(vim_action_t action, vim_send_type_t type) {
+    vim_pending_t pending = vim_clear_pending();
     switch (action & VIM_MASK_ACTION) {
         case VIM_ACTION_PASTE:
-            vim_send(command_mod, KC_V, type);
+            vim_send_repeated(pending.repeat, command_mod, KC_V, type);
             return;
         case VIM_ACTION_UNDO:
-            vim_send(command_mod, KC_Z, type);
+            vim_send_repeated(pending.repeat, command_mod, KC_Z, type);
             return;
         case VIM_ACTION_COMMAND_MODE:
             vim_enter_command_mode();
@@ -111,7 +125,7 @@ void vim_perform_action(vim_action_t action, vim_send_type_t type) {
         }
     }
 
-    switch (vim_command_buffer_tail()) {
+    switch (pending.keycode) {
         case KC_C:
             action |= VIM_MOD_CHANGE;
             type = VIM_SEND_TAP;
@@ -128,23 +142,21 @@ void vim_perform_action(vim_action_t action, vim_send_type_t type) {
             break;
     }
 
-    vim_clear_command();
-
     VIM_DPRINTF("action=%x\n", action);
     if (action & (VIM_MOD_DELETE | VIM_MOD_CHANGE)) {
         if (keycode != KC_NO) {
             // keycode is KC_NO in visual mode, where the object is the visual selection
             // send shifted action as a tap
-            vim_send(mods | MOD_LSFT, keycode, VIM_SEND_TAP);
+            vim_send_repeated(pending.repeat, mods | MOD_LSFT, keycode, VIM_SEND_TAP);
         }
         vim_send(command_mod, KC_X, VIM_SEND_TAP);
     } else if (action & VIM_MOD_YANK) {
-        vim_send(mods | MOD_LSFT, keycode, VIM_SEND_TAP);
+        vim_send_repeated(pending.repeat, mods | MOD_LSFT, keycode, VIM_SEND_TAP);
         vim_send(command_mod, KC_C, VIM_SEND_TAP);
     } else if (action & VIM_MOD_SELECT) {
-        vim_send(mods | MOD_LSFT, keycode, type);
+        vim_send_repeated(pending.repeat, mods | MOD_LSFT, keycode, type);
     } else {
-        vim_send(mods, keycode, type);
+        vim_send_repeated(pending.repeat, mods, keycode, type);
     }
 
     if (action & (VIM_MOD_CHANGE | VIM_MOD_INSERT_AFTER)) {

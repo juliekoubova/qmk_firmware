@@ -41,6 +41,7 @@ typedef enum {
 
 typedef struct {
     bool         append : 1;
+    bool         append_if_pending : 1;
     bool         repeating : 1;
     vim_action_t action;
 #ifdef VIM_DEBUG
