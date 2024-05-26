@@ -14,12 +14,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "vim.h"
 #include "vim_command_buffer.h"
-#include "vim_debug.h"
+#include "debug.h"
 #include "vim_mode.h"
-#include "vim_statemachine.h"
-#include "vim_windows.h"
+#include "statemachine.h"
+#include "perform_action.h"
 #include "print.h"
 #include <stdbool.h>
 

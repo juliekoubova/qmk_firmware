@@ -14,19 +14,31 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdbool.h>
 #include "vim_command_buffer.h"
-#include "vim_windows.h"
 #include "quantum/keycode.h"
-#include "vim_debug.h"
-#include "vim_statemachine.h"
+#include "perform_action.h"
+#include "debug.h"
+#include "statemachine.h"
+
+static uint8_t command_mod      = MOD_LCTL;
+static uint8_t document_nav_mod = MOD_LCTL;
+static uint8_t word_nav_mod     = MOD_LCTL;
+
+void vim_set_apple(bool apple) {
+    VIM_DPRINTF("apple=%d\n", apple);
+    command_mod      = apple ? MOD_LGUI : MOD_LCTL;
+    document_nav_mod = apple ? MOD_LGUI : MOD_LCTL;
+    word_nav_mod     = apple ? MOD_LALT : MOD_LCTL;
+}
 
 void vim_perform_action(vim_action_t action, vim_send_type_t type) {
     switch (action & VIM_MASK_ACTION) {
         case VIM_ACTION_PASTE:
-            vim_send(MOD_LCTL, KC_V, type);
+            vim_send(command_mod, KC_V, type);
             return;
         case VIM_ACTION_UNDO:
-            vim_send(MOD_LCTL, KC_Z, type);
+            vim_send(command_mod, KC_Z, type);
             return;
         case VIM_ACTION_COMMAND_MODE:
             vim_enter_command_mode();
@@ -74,19 +86,19 @@ void vim_perform_action(vim_action_t action, vim_send_type_t type) {
                 break;
             case VIM_ACTION_WORD_START:
                 keycode = KC_LEFT;
-                mods    = MOD_LCTL;
+                mods    = word_nav_mod;
                 break;
             case VIM_ACTION_WORD_END:
                 keycode = KC_RIGHT;
-                mods    = MOD_LCTL;
+                mods    = word_nav_mod;
                 break;
             case VIM_ACTION_DOCUMENT_START:
                 keycode = KC_HOME;
-                mods    = MOD_LCTL;
+                mods    = document_nav_mod;
                 break;
             case VIM_ACTION_DOCUMENT_END:
                 keycode = KC_END;
-                mods    = MOD_LCTL;
+                mods    = document_nav_mod;
                 break;
             case VIM_ACTION_PAGE_UP:
                 keycode = KC_PAGE_UP;
@@ -118,17 +130,17 @@ void vim_perform_action(vim_action_t action, vim_send_type_t type) {
 
     vim_clear_command();
 
-    VIM_DPRINTF("action=%x\n",  action);
+    VIM_DPRINTF("action=%x\n", action);
     if (action & (VIM_MOD_DELETE | VIM_MOD_CHANGE)) {
         if (keycode != KC_NO) {
             // keycode is KC_NO in visual mode, where the object is the visual selection
             // send shifted action as a tap
             vim_send(mods | MOD_LSFT, keycode, VIM_SEND_TAP);
         }
-        vim_send(MOD_LCTL, KC_X, VIM_SEND_TAP);
+        vim_send(command_mod, KC_X, VIM_SEND_TAP);
     } else if (action & VIM_MOD_YANK) {
         vim_send(mods | MOD_LSFT, keycode, VIM_SEND_TAP);
-        vim_send(MOD_LCTL, KC_C, VIM_SEND_TAP);
+        vim_send(command_mod, KC_C, VIM_SEND_TAP);
     } else if (action & VIM_MOD_SELECT) {
         vim_send(mods | MOD_LSFT, keycode, type);
     } else {
@@ -143,4 +155,3 @@ void vim_perform_action(vim_action_t action, vim_send_type_t type) {
         vim_enter_command_mode();
     }
 }
-

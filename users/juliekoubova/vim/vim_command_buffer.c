@@ -1,6 +1,6 @@
 #include "vim_command_buffer.h"
-#include "vim_debug.h"
-#include "quantum.h"
+#include "debug.h"
+#include "quantum/quantum.h"
 #include <stdint.h>
 
 #ifndef VIM_COMMAND_BUFFER_SIZE

@@ -16,7 +16,7 @@
 
 #pragma once
 #include "vim_mode.h"
-#include "vim_statemachine.h"
+#include "statemachine.h"
 #include "vim_send.h"
 
 void vim_perform_action(vim_action_t, vim_send_type_t);

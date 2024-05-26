@@ -1,5 +1,5 @@
 #pragma once
-#include "print.h"
+#include "quantum/logging/print.h"
 
 #ifdef VIM_DEBUG
 #    define VIM_DPRINT(s) dprint("[vim] " s)

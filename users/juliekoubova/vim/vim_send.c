@@ -1,6 +1,6 @@
 #include "vim_send.h"
-#include "vim_debug.h"
-#include <quantum.h>
+#include "debug.h"
+#include "quantum/quantum.h"
 
 void vim_send(uint8_t mods, uint16_t keycode, vim_send_type_t type) {
     if (mods && (type == VIM_SEND_PRESS || type == VIM_SEND_TAP)) {

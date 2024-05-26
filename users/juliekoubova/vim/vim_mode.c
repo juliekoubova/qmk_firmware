@@ -1,4 +1,4 @@
-#include "vim_debug.h"
+#include "debug.h"
 #include "vim_mode.h"
 #include "vim_command_buffer.h"
 #include "vim_send.h"

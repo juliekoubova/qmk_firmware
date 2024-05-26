@@ -1,5 +1,5 @@
 #pragma once
-#include "vim_debug.h"
+#include "debug.h"
 #include "vim_mode.h"
 
 typedef enum {

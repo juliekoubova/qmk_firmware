@@ -1,5 +1,5 @@
-#include "vim_statemachine.h"
-#include "vim_debug.h"
+#include "debug.h"
+#include "statemachine.h"
 #include "vim_mode.h"
 
 #define VIM_STATEMACHINE_FIRST KC_A

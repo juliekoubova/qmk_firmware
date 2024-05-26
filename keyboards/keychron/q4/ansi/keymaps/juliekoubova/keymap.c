@@ -16,6 +16,7 @@
 
 #include QMK_KEYBOARD_H
 #include "vim.h"
+#include <stdbool.h>
 
 enum layers {
     BASE,
@@ -100,4 +101,12 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 
 void keyboard_post_init_user(void) {
     debug_enable = true;
+}
+
+bool dip_switch_update_user(uint8_t index, bool active) {
+    if (index == 0) {
+        vim_set_apple(!active);
+        return false;
+    }
+    return true;
 }
