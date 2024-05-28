@@ -135,6 +135,8 @@ static const vim_statemachine_t vim_statemachine_visual_shift[VSM_SIZE] = {
     VSM(KC_V, VIM_ACTION_LINE | VIM_MOD_SELECT),
     VSM(KC_X, VIM_ACTION_LINE | VIM_MOD_DELETE),
     VSM(KC_Y, VIM_ACTION_LINE | VIM_MOD_YANK),
+    VSM(KC_4, VIM_ACTION_LINE_END | VIM_MOD_SELECT),
+    VSM(KC_6, VIM_ACTION_LINE_START | VIM_MOD_SELECT),
     // clang-format on
 };
 
